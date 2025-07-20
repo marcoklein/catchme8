@@ -1,6 +1,14 @@
-# CatchMe Game - Technical Specifications
+# CatchMe Game - Technical Specification### Game Configuration
 
-## Project Overview
+- **Game Field**: 800x600 pixels
+- **Player Size**: 20px radius circles
+- **Movement Speed**: 200 pixels/second (260 for "it" player - 30% boost)
+- **Catch Distance**: 25px (player radius + buffer)
+- **Maximum Players**: 8
+- **Minimum Players**: 2 (auto-start)
+- **Game Duration**: 120 seconds (2 minutes)
+- **Power-ups**: Transparency (5s duration, 15s respawn)
+- **Obstacles**: Static rectangular and circular obstacles for strategic gameplayject Overview
 
 CatchMe is a real-time multiplayer 2D top-down catch game built with Node.js, Express, Socket.IO, and HTML5 Canvas. Players move around a game field trying to catch each other in a tag-like gameplay.
 
@@ -55,6 +63,11 @@ catchme-8/
 - **Visual Representation**: Colored circles with names
 - **Random Colors**: 8 predefined colors assigned automatically
 - **"IT" Player**: First player becomes "IT", indicated by golden glow effect
+- **Speed Boost**: "IT" player moves 30% faster than other players
+- **Power-ups**:
+  - Transparency: Makes player invisible to others (except themselves) for 5 seconds
+  - Still catchable while transparent
+  - Visual indicator for own transparent player (semi-transparent + dashed border)
 
 ### Movement System
 
@@ -63,7 +76,9 @@ catchme-8/
 - **Update Frequency**: 60 FPS server updates, 30 FPS network broadcasts
 - **Movement Model**: Server-authoritative (no client-side prediction)
 - **Boundaries**: Players cannot move outside game field
-- **Collision Detection**: Circle-based collision for tagging
+- **Collision Detection**: Circle-based collision for tagging and obstacle avoidance
+- **Speed Variation**: "IT" player receives 30% speed boost (260 vs 200 pixels/second)
+- **Obstacle Collision**: Players cannot move through static obstacles
 
 ## Server Architecture
 
@@ -85,11 +100,18 @@ catchme-8/
   - `gameActive`: Boolean game status
   - `gameStartTime`: Timestamp for timer
   - `gameDuration`: 120000ms (2 minutes)
+  - `obstacles`: Static game obstacles (rectangles and circles)
+  - `powerUps`: Transparency power-ups with respawn timers
 - **Key Methods**:
   - `addPlayer(player)`: Add player with validation
   - `removePlayer(playerId)`: Remove player and reassign "IT"
   - `tagPlayer(taggerId, targetId)`: Handle tagging logic
   - `updatePlayer(playerId, movement, deltaTime)`: Movement validation
+  - `generateObstacles()`: Create static obstacles for strategic gameplay
+  - `generatePowerUps()`: Create transparency power-ups
+  - `checkObstacleCollision()`: Validate movement against obstacles
+  - `checkPowerUpCollision()`: Handle power-up collection
+  - `updatePowerUps()`: Manage power-up timers and respawning
 
 ### Player Class (`server/game/Player.js`)
 
@@ -98,12 +120,17 @@ catchme-8/
   - `id`, `name`, `x`, `y`: Basic player data
   - `isIt`: Boolean "IT" status
   - `color`: Randomly assigned color
-  - `speed`: 200 pixels/second
+  - `speed`: 200 pixels/second (base speed)
   - `velocity`: Current movement direction
+  - `isTransparent`: Boolean transparency power-up status
+  - `transparencyEndTime`: Timestamp for transparency expiration
 - **Key Methods**:
-  - `move(dx, dy, deltaTime, gameWidth, gameHeight)`: Position updates
+  - `move(dx, dy, deltaTime, gameWidth, gameHeight, obstacles)`: Position updates with obstacle collision
   - `distanceTo(other)`: Distance calculation for collision
-  - `canCatch(other)`: Collision detection logic
+  - `canCatch(other)`: Collision detection logic (transparent players still catchable)
+  - `activateTransparency(duration)`: Apply transparency power-up
+  - `updatePowerUps(currentTime)`: Update power-up timers
+  - `checkObstacleCollision(x, y, obstacles)`: Validate position against obstacles
 
 ## Client Architecture
 
@@ -144,6 +171,10 @@ catchme-8/
   - Player name labels
   - Grid background pattern
   - Trail effects for moving players
+  - Obstacle rendering (rectangles and circles with textures)
+  - Power-up rendering with pulsing effects and gradients
+  - Transparency handling (invisible to others, semi-transparent to self)
+  - Special transparency indicator for own player (dashed border)
 
 ## Socket.IO Events
 
@@ -156,7 +187,7 @@ catchme-8/
 ### Server → Client Events
 
 - `gameJoined`: `{playerId: string, gameState: object}` - Successful join
-- `gameState`: `{players: array, gameActive: boolean, timeRemaining: number}` - State updates
+- `gameState`: `{players: array, gameActive: boolean, timeRemaining: number, obstacles: array, powerUps: array}` - State updates
 - `playerTagged`: `{tagger: string, tagged: string, newIt: string}` - Tag notifications
 - `gameEnd`: `{reason: string}` - Game termination
 - `joinError`: `{error: string}` - Join failure
@@ -223,17 +254,28 @@ const Player = require("./Player");
 ### Movement Synchronization
 
 - Client sends movement input at 30 FPS
-- Server processes movement at 60 FPS
+- Server processes movement at 60 FPS with obstacle collision detection
 - Server broadcasts authoritative state at 30 FPS
 - Delta time calculations prevent frame rate dependencies
 - Pure server-authoritative movement (no client-side prediction)
+- Dynamic speed adjustment for "IT" player (30% boost)
 
 ### Collision Detection
 
-- Circle-to-circle collision using distance calculation
-- Collision check only for "IT" player
+- Circle-to-circle collision using distance calculation for tagging
+- Circle-to-rectangle and circle-to-circle collision for obstacles
+- Collision check only for "IT" player when tagging
 - 25px collision distance (player radius + buffer)
 - Immediate tag processing and broadcast
+- Power-up collection via circle-to-circle collision
+
+### Power-up System
+
+- Transparency power-ups spawn at fixed locations
+- 5-second duration, 15-second respawn timer
+- Players become invisible to others but remain catchable
+- Visual feedback for transparent player (semi-transparent + dashed border)
+- Server-side power-up state management and synchronization
 
 ### Game State Management
 
@@ -262,6 +304,12 @@ const Player = require("./Player");
 
 - ✅ Phase 1: Basic Infrastructure (Complete)
 - ✅ Phase 2: Core Game Mechanics (Complete)
-- 🔄 Phase 3: Enhanced Features (Planned - power-ups, game modes, etc.)
+- ✅ Phase 3: Enhanced Features (Complete)
+  - ✅ Static obstacles for strategic gameplay
+  - ✅ Transparency power-ups with visual effects
+  - ✅ Speed boost for "IT" player
+  - ✅ Advanced collision detection system
+  - ✅ Power-up respawn system
+- 🔄 Phase 4: Additional Features (Planned - multiple power-up types, game modes, etc.)
 
-This codebase implements a fully functional multiplayer catch game with real-time synchronization, server-authoritative movement, and polished visual feedback.
+This codebase implements a fully functional multiplayer catch game with real-time synchronization, server-authoritative movement, obstacles, power-ups, and polished visual feedback.

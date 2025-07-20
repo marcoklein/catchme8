@@ -19,8 +19,11 @@ A real-time multiplayer 2D top-down game where players move around a game field 
 1. **Player Movement**: WASD or arrow key controls for smooth 8-directional movement
 2. **Catching**: When the "it" player touches another player, they become "it"
 3. **Visual Feedback**: Clear indication of who is "it" (different color/glow effect)
-4. **Collision Detection**: Real-time collision detection between players
+4. **Collision Detection**: Real-time collision detection between players and obstacles
 5. **Game Boundaries**: Players cannot move outside the game field
+6. **Speed Advantage**: "IT" player moves 30% faster than other players
+7. **Obstacles**: Static rectangular and circular obstacles for strategic cover
+8. **Power-ups**: Transparency power-ups that make players invisible (but still catchable)
 
 ### Game States
 
@@ -32,8 +35,10 @@ A real-time multiplayer 2D top-down game where players move around a game field 
 
 - Unique player names/IDs
 - Different colors for each player
-- "It" player has special visual indicator
+- "It" player has special visual indicator and 30% speed boost
 - Player position synchronization across all clients
+- Transparency power-up effects with visual feedback
+- Collision detection with obstacles for strategic gameplay
 
 ## Technical Architecture
 
@@ -113,27 +118,53 @@ client/
    - Real-time collision checking
    - Tag event handling and broadcasting
 
-### Phase 3: Enhanced Features
+### Phase 3: Enhanced Features ✅ COMPLETED
 
-1. **Visual Improvements**
+1. **Visual Improvements** ✅
 
    - Player sprites/avatars
    - "It" player special effects
-   - Game field design
+   - Game field design with grid background
    - UI for player names and status
+   - Obstacle rendering with textures
+   - Power-up visual effects with pulsing animations
 
-2. **Game Features**
+2. **Game Features** ✅
 
-   - Score tracking
-   - Multiple rounds
-   - Power-ups (speed boost, immunity, etc.)
-   - Different game modes
+   - Static obstacles for strategic gameplay
+   - Transparency power-ups (5s duration, 15s respawn)
+   - Speed boost for "IT" player (30% faster)
+   - Advanced collision detection system
+   - Power-up collection and respawn mechanics
 
-3. **Polish**
-   - Sound effects
-   - Animations
+3. **Polish** ✅
+   - Enhanced visual feedback and animations
+   - Trail effects for moving players
+   - Transparency indicators for own player
    - Mobile responsiveness
    - Error handling and reconnection
+
+### Phase 4: Additional Features
+
+1. **Advanced Power-ups**
+
+   - Speed boost power-ups
+   - Immunity/shield power-ups
+   - Multiple power-up types with different effects
+
+2. **Game Modes**
+
+   - Score tracking and leaderboards
+   - Multiple rounds with winner determination
+   - Team-based modes
+   - Different game map layouts
+
+3. **Audio and Polish**
+
+   - Sound effects for actions
+   - Background music
+   - Advanced animations
+   - Particle effects
 
 ## Key Socket.IO Events
 
@@ -155,11 +186,13 @@ client/
 
 - **Game Field**: 800x600 pixels
 - **Player Size**: 20px radius circles
-- **Movement Speed**: 200 pixels/second
+- **Movement Speed**: 200 pixels/second (260 for "it" player)
 - **Catch Distance**: 25px (player radius + small buffer)
 - **Maximum Players**: 8
 - **Minimum Players**: 2
 - **Game Duration**: 120 seconds (configurable)
+- **Power-ups**: Transparency (5s duration, 15s respawn)
+- **Obstacles**: Static rectangles and circles for strategic gameplay
 
 ## Development Workflow
 

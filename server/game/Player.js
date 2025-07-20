@@ -39,7 +39,9 @@ class Player {
     // Store current velocity for prediction
     this.velocity = { dx, dy };
 
-    const moveDistance = this.speed * (deltaTime / 1000);
+    // Adjust speed based on whether player is "it" (catcher gets speed boost)
+    const currentSpeed = this.isIt ? this.speed * 1.3 : this.speed; // 30% speed boost for catcher
+    const moveDistance = currentSpeed * (deltaTime / 1000);
 
     // Calculate new position
     let newX = this.x + dx * moveDistance;
@@ -111,9 +113,6 @@ class Player {
   }
 
   canCatch(other) {
-    // Can't catch transparent players
-    if (other.isTransparent) return false;
-
     return (
       this.isIt && this.distanceTo(other) <= this.radius + other.radius + 5
     );

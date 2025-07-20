@@ -186,8 +186,8 @@ class Renderer {
   drawPlayer(player) {
     const isMyPlayer = player.id === this.myPlayerId;
 
-    // If player is transparent, don't render them at all
-    if (player.isTransparent) {
+    // If player is transparent and it's not the current player, don't render them
+    if (player.isTransparent && !isMyPlayer) {
       return;
     }
 
@@ -239,6 +239,11 @@ class Renderer {
     // Remove faded trail points
     playerData.trail = playerData.trail.filter((point) => point.alpha > 0.1);
 
+    // Apply transparency effect if this is the player's own transparent character
+    if (player.isTransparent && isMyPlayer) {
+      this.ctx.globalAlpha = 0.5; // Make own player semi-transparent to show they're invisible to others
+    }
+
     // Draw player circle
     this.ctx.beginPath();
     this.ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -249,6 +254,11 @@ class Renderer {
     this.ctx.strokeStyle = isMyPlayer ? "#000" : "#333";
     this.ctx.lineWidth = isMyPlayer ? 3 : 2;
     this.ctx.stroke();
+
+    // Reset transparency
+    if (player.isTransparent && isMyPlayer) {
+      this.ctx.globalAlpha = 1.0;
+    }
 
     // Special effect for "it" player
     if (player.isIt) {
@@ -269,6 +279,20 @@ class Renderer {
       this.ctx.setLineDash([5, 5]);
       this.ctx.stroke();
       this.ctx.setLineDash([]);
+    }
+
+    // Special transparency indicator for own player
+    if (player.isTransparent && isMyPlayer) {
+      this.ctx.save();
+      this.ctx.globalAlpha = 0.8;
+      this.ctx.strokeStyle = "rgba(173, 216, 230, 0.9)";
+      this.ctx.lineWidth = 3;
+      this.ctx.setLineDash([4, 4]);
+      this.ctx.beginPath();
+      this.ctx.arc(player.x, player.y, player.radius + 8, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+      this.ctx.restore();
     }
 
     // Draw player name
