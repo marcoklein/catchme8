@@ -13,8 +13,11 @@ class GameManager {
   }
 
   handlePlayerJoin(socket, playerName) {
-    // Create new player
-    const player = new Player(socket.id, playerName);
+    // Find a safe spawn position
+    const spawnPos = this.gameState.findSafeSpawnPosition();
+
+    // Create new player at safe position
+    const player = new Player(socket.id, playerName, spawnPos.x, spawnPos.y);
 
     if (!this.gameState.addPlayer(player)) {
       socket.emit("joinError", "Game is full");
@@ -41,12 +44,23 @@ class GameManager {
     const deltaTime = Math.min(now - this.lastUpdate, 100); // Cap deltaTime to prevent large jumps
 
     if (this.gameState.updatePlayer(socket.id, movement, deltaTime)) {
-      // Check for collisions/tags immediately
-      this.checkCollisions(socket.id);
-
-      // Update player's last movement time for activity tracking
       const player = this.gameState.players.get(socket.id);
       if (player) {
+        // Check for power-up collection
+        const collectedPowerUp = this.gameState.checkPowerUpCollision(player);
+        if (collectedPowerUp) {
+          // Notify all players about power-up collection
+          this.io.to("game").emit("powerUpCollected", {
+            playerId: player.id,
+            playerName: player.name,
+            powerUpType: collectedPowerUp.type,
+          });
+        }
+
+        // Check for collisions/tags immediately
+        this.checkCollisions(socket.id);
+
+        // Update player's last movement time for activity tracking
         player.lastMovement = now;
       }
     }
@@ -89,6 +103,9 @@ class GameManager {
     const deltaTime = now - this.lastUpdate;
 
     if (deltaTime >= this.updateInterval) {
+      // Update power-ups (respawn timers, transparency expiration)
+      this.gameState.updatePowerUps();
+
       // Update game state
       if (this.gameState.isGameOver()) {
         this.gameState.stopGame();

@@ -35,6 +35,11 @@ class NetworkManager {
       game.onGameEnd(reason);
     });
 
+    this.socket.on("powerUpCollected", (data) => {
+      const message = `${data.playerName} collected a ${data.powerUpType} power-up!`;
+      this.showMessage(message, "info");
+    });
+
     this.socket.on("joinError", (error) => {
       this.showError(error);
     });

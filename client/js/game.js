@@ -4,8 +4,6 @@ class Game {
     this.myPlayerId = null;
     this.gameActive = false;
     this.lastUpdate = Date.now();
-    this.clientPrediction = new Map(); // Store predicted positions for smooth movement
-    this.serverReconciliation = true; // Enable server reconciliation
 
     this.initializeUI();
     this.setupCanvas();
@@ -86,17 +84,6 @@ class Game {
   updateGameState(gameState) {
     this.gameState = gameState;
 
-    // Update client prediction with server authoritative positions
-    if (this.serverReconciliation) {
-      gameState.players.forEach((serverPlayer) => {
-        this.clientPrediction.set(serverPlayer.id, {
-          x: serverPlayer.x,
-          y: serverPlayer.y,
-          lastUpdate: Date.now(),
-        });
-      });
-    }
-
     renderer.setGameState(gameState);
 
     // Update UI elements
@@ -138,12 +125,9 @@ class Game {
     const now = Date.now();
     const deltaTime = now - this.lastUpdate;
 
-    // Update input and apply client-side movement prediction
+    // Update input
     if (this.gameActive && this.myPlayerId) {
-      const movement = input.update();
-
-      // Apply client-side prediction for smoother movement
-      this.updateClientPrediction(deltaTime, movement);
+      input.update();
     }
 
     // Render the game
@@ -151,49 +135,6 @@ class Game {
 
     this.lastUpdate = now;
     requestAnimationFrame(() => this.gameLoop());
-  }
-
-  updateClientPrediction(deltaTime, movement) {
-    if (!this.gameState) return;
-
-    const myPlayer = this.gameState.players.find(
-      (p) => p.id === this.myPlayerId
-    );
-    if (!myPlayer) return;
-
-    // Get current predicted position or use server position
-    let predicted = this.clientPrediction.get(this.myPlayerId);
-    if (!predicted) {
-      predicted = { x: myPlayer.x, y: myPlayer.y, lastUpdate: Date.now() };
-      this.clientPrediction.set(this.myPlayerId, predicted);
-    }
-
-    // Apply movement prediction if player is moving
-    if (movement.dx !== 0 || movement.dy !== 0) {
-      const speed = 200; // pixels per second (should match server)
-      const moveDistance = speed * (deltaTime / 1000);
-
-      // Calculate new predicted position
-      let newX = predicted.x + movement.dx * moveDistance;
-      let newY = predicted.y + movement.dy * moveDistance;
-
-      // Apply boundaries (should match server logic)
-      const gameWidth = this.gameState.gameWidth || 800;
-      const gameHeight = this.gameState.gameHeight || 600;
-      const radius = 20;
-
-      newX = Math.max(radius, Math.min(gameWidth - radius, newX));
-      newY = Math.max(radius, Math.min(gameHeight - radius, newY));
-
-      // Update predicted position
-      predicted.x = newX;
-      predicted.y = newY;
-      predicted.lastUpdate = Date.now();
-
-      // Update the rendered player position for smooth movement
-      myPlayer.x = newX;
-      myPlayer.y = newY;
-    }
   }
 }
 

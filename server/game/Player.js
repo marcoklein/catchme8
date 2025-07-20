@@ -11,6 +11,10 @@ class Player {
     this.lastUpdate = Date.now();
     this.lastMovement = Date.now();
     this.velocity = { dx: 0, dy: 0 }; // Current movement direction
+    
+    // Power-up properties
+    this.isTransparent = false;
+    this.transparencyEndTime = 0;
   }
 
   generateRandomColor() {
@@ -31,7 +35,7 @@ class Player {
     this.lastUpdate = Date.now();
   }
 
-  move(dx, dy, deltaTime, gameWidth, gameHeight) {
+  move(dx, dy, deltaTime, gameWidth, gameHeight, obstacles = []) {
     // Store current velocity for prediction
     this.velocity = { dx, dy };
 
@@ -45,9 +49,59 @@ class Player {
     newX = Math.max(this.radius, Math.min(gameWidth - this.radius, newX));
     newY = Math.max(this.radius, Math.min(gameHeight - this.radius, newY));
 
-    this.x = newX;
-    this.y = newY;
+    // Check for obstacle collisions
+    const wouldCollide = this.checkObstacleCollision(newX, newY, obstacles);
+
+    if (!wouldCollide) {
+      this.x = newX;
+      this.y = newY;
+    } else {
+      // Try moving only in X direction
+      if (!this.checkObstacleCollision(newX, this.y, obstacles)) {
+        this.x = newX;
+      }
+      // Try moving only in Y direction
+      else if (!this.checkObstacleCollision(this.x, newY, obstacles)) {
+        this.y = newY;
+      }
+      // If both directions would cause collision, don't move
+    }
+
     this.lastUpdate = Date.now();
+  }
+
+  checkObstacleCollision(x, y, obstacles) {
+    for (const obstacle of obstacles) {
+      if (obstacle.type === "rectangle") {
+        // Check circle-rectangle collision
+        const closestX = Math.max(
+          obstacle.x - obstacle.width / 2,
+          Math.min(x, obstacle.x + obstacle.width / 2)
+        );
+        const closestY = Math.max(
+          obstacle.y - obstacle.height / 2,
+          Math.min(y, obstacle.y + obstacle.height / 2)
+        );
+
+        const distanceX = x - closestX;
+        const distanceY = y - closestY;
+        const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+
+        if (distanceSquared < this.radius * this.radius) {
+          return true;
+        }
+      } else if (obstacle.type === "circle") {
+        // Check circle-circle collision
+        const dx = x - obstacle.x;
+        const dy = y - obstacle.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < this.radius + obstacle.radius) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   distanceTo(other) {
@@ -57,9 +111,25 @@ class Player {
   }
 
   canCatch(other) {
+    // Can't catch transparent players
+    if (other.isTransparent) return false;
+    
     return (
       this.isIt && this.distanceTo(other) <= this.radius + other.radius + 5
     );
+  }
+
+  activateTransparency(duration) {
+    this.isTransparent = true;
+    this.transparencyEndTime = Date.now() + duration;
+  }
+
+  updatePowerUps(currentTime) {
+    // Check if transparency expired
+    if (this.isTransparent && currentTime >= this.transparencyEndTime) {
+      this.isTransparent = false;
+      this.transparencyEndTime = 0;
+    }
   }
 
   toJSON() {
@@ -71,6 +141,7 @@ class Player {
       isIt: this.isIt,
       color: this.color,
       radius: this.radius,
+      isTransparent: this.isTransparent,
     };
   }
 }
