@@ -1,14 +1,6 @@
 # CatchMe Game - Technical Specification### Game Configuration
 
-- **Game Field**: 800x600 pixels
-- **Player Size**: 20px radius circles
-- **Movement Speed**: 200 pixels/second (260 for "it" player - 30% boost)
-- **Catch Distance**: 25px (player radius + buffer)
-- **Maximum Players**: 8
-- **Minimum Players**: 2 (auto-start)
-- **Game Duration**: 120 seconds (2 minutes)
-- **Power-ups**: Transparency (5s duration, 15s respawn)
-- **Obstacles**: Static rectangular and circular obstacles for strategic gameplayject Overview
+## Overview
 
 CatchMe is a real-time multiplayer 2D top-down catch game built with Node.js, Express, Socket.IO, and HTML5 Canvas. Players move around a game field trying to catch each other in a tag-like gameplay.
 

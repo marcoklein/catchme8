@@ -144,13 +144,15 @@ class Player {
   }
 
   // Stun the player for a short duration
-  stun(duration = 1000) { // Default 1 second stun
+  stun(duration = 1000) {
+    // Default 1 second stun
     this.isStunned = true;
     this.stunEndTime = Date.now() + duration;
   }
 
   // Set the timeout before player can catch again
-  setCatchTimeout(timeout = 1000) { // Default 1 second timeout
+  setCatchTimeout(timeout = 1000) {
+    // Default 1 second timeout
     this.canCatchAgainTime = Date.now() + timeout;
   }
 
