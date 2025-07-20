@@ -169,8 +169,16 @@ class GameState {
     }
 
     if (tagger.canCatch(target)) {
+      // Transfer "IT" status
       tagger.isIt = false;
       target.isIt = true;
+
+      // Stun the player who was just caught (1 second)
+      target.stun(1000);
+
+      // Set timeout before the new "IT" player can catch again (1 second)
+      target.setCatchTimeout(1000);
+
       return true;
     }
 

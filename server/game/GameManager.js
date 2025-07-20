@@ -1,5 +1,7 @@
 const GameState = require("./GameState");
 const Player = require("./Player");
+const AIPlayer = require("./AIPlayer");
+const AIBehavior = require("./AIBehavior");
 
 class GameManager {
   constructor(io) {
@@ -9,6 +11,8 @@ class GameManager {
     this.updateInterval = 1000 / 60; // 60 FPS
     this.lastBroadcast = Date.now();
     this.broadcastInterval = 1000 / 30; // Broadcast at 30 FPS
+    this.aiUpdateInterval = 1000 / 10; // Update AI 10 times per second
+    this.lastAIUpdate = Date.now();
     this.gameLoop();
   }
 
@@ -94,6 +98,107 @@ class GameManager {
     }
   }
 
+  // AI Management Methods
+  addAIPlayer(name = null) {
+    if (this.gameState.players.size >= this.gameState.maxPlayers) {
+      return false;
+    }
+
+    // Generate AI name if not provided
+    if (!name) {
+      const aiNames = [
+        "Bot Alpha",
+        "Bot Beta",
+        "Bot Gamma",
+        "Bot Delta",
+        "Bot Echo",
+      ];
+      const usedNames = Array.from(this.gameState.players.values()).map(
+        (p) => p.name
+      );
+      const availableNames = aiNames.filter((n) => !usedNames.includes(n));
+      name =
+        availableNames.length > 0 ? availableNames[0] : `Bot ${Date.now()}`;
+    }
+
+    // Find a safe spawn position
+    const spawnPos = this.gameState.findSafeSpawnPosition();
+
+    // Create AI player with unique ID
+    const aiId = `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const aiPlayer = new AIPlayer(aiId, name, spawnPos.x, spawnPos.y);
+
+    if (this.gameState.addPlayer(aiPlayer)) {
+      console.log(`AI Player ${name} (${aiId}) joined the game`);
+      this.broadcastGameState();
+      return true;
+    }
+
+    return false;
+  }
+
+  removeAIPlayer(aiId) {
+    const aiPlayer = this.gameState.players.get(aiId);
+    if (aiPlayer && aiPlayer.isAI) {
+      this.gameState.removePlayer(aiId);
+      console.log(`AI Player ${aiPlayer.name} (${aiId}) removed from game`);
+      this.broadcastGameState();
+      return true;
+    }
+    return false;
+  }
+
+  updateAIPlayers() {
+    const now = Date.now();
+    if (now - this.lastAIUpdate < this.aiUpdateInterval) {
+      return;
+    }
+
+    this.lastAIUpdate = now;
+    const deltaTime = Math.min(now - this.lastUpdate, 100);
+
+    // Update each AI player
+    for (const [playerId, player] of this.gameState.players) {
+      if (player.isAI) {
+        // Get AI decision
+        const movement = AIBehavior.decideAction(player, this.gameState);
+
+        // Update AI player position
+        if (this.gameState.updatePlayer(playerId, movement, deltaTime)) {
+          // Check for power-up collection
+          const collectedPowerUp = this.gameState.checkPowerUpCollision(player);
+          if (collectedPowerUp) {
+            this.io.to("game").emit("powerUpCollected", {
+              playerId: player.id,
+              playerName: player.name,
+              powerUpType: collectedPowerUp.type,
+            });
+          }
+
+          // Check for collisions/tags
+          this.checkCollisions(playerId);
+        }
+      }
+    }
+  }
+
+  // Check if we should add AI players to fill the game
+  shouldAddAIPlayer() {
+    const humanPlayers = Array.from(this.gameState.players.values()).filter(
+      (p) => !p.isAI
+    );
+    const aiPlayers = Array.from(this.gameState.players.values()).filter(
+      (p) => p.isAI
+    );
+
+    // Add AI if we have human players but not enough total players for a good game
+    return (
+      humanPlayers.length > 0 &&
+      this.gameState.players.size < 4 &&
+      aiPlayers.length < 2
+    );
+  }
+
   broadcastGameState() {
     this.io.to("game").emit("gameState", this.gameState.toJSON());
   }
@@ -103,6 +208,14 @@ class GameManager {
     const deltaTime = now - this.lastUpdate;
 
     if (deltaTime >= this.updateInterval) {
+      // Update AI players
+      this.updateAIPlayers();
+
+      // Check if we should add AI players
+      if (this.shouldAddAIPlayer()) {
+        this.addAIPlayer();
+      }
+
       // Update power-ups (respawn timers, transparency expiration)
       this.gameState.updatePowerUps();
 

@@ -295,17 +295,51 @@ class Renderer {
       this.ctx.restore();
     }
 
+    // Stunned effect - red pulsing circle
+    if (player.isStunned) {
+      this.ctx.save();
+      const time = Date.now() / 1000;
+      const pulseAlpha = 0.3 + Math.sin(time * 8) * 0.2; // Fast pulse
+      this.ctx.globalAlpha = pulseAlpha;
+      this.ctx.strokeStyle = "#FF0000";
+      this.ctx.lineWidth = 4;
+      this.ctx.setLineDash([2, 2]);
+      this.ctx.beginPath();
+      this.ctx.arc(player.x, player.y, player.radius + 6, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+      this.ctx.restore();
+    }
+
     // Draw player name
     this.ctx.fillStyle = "#000";
     this.ctx.font = "bold 12px Arial";
     this.ctx.textAlign = "center";
-    this.ctx.fillText(player.name, player.x, player.y - player.radius - 10);
+
+    // Add [AI] prefix for AI players and [STUNNED] for stunned players
+    let displayName = player.isAI ? `[AI] ${player.name}` : player.name;
+    if (player.isStunned) {
+      displayName = `[STUNNED] ${displayName}`;
+      this.ctx.fillStyle = "#FF0000"; // Red text for stunned players
+    }
+    this.ctx.fillText(displayName, player.x, player.y - player.radius - 10);
 
     // Draw "IT" label
     if (player.isIt) {
       this.ctx.fillStyle = "#FFD700";
       this.ctx.font = "bold 14px Arial";
       this.ctx.fillText("IT!", player.x, player.y + 5);
+    }
+
+    // Draw AI behavior indicator (for debugging - small text under AI players)
+    if (player.isAI && player.currentBehavior) {
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      this.ctx.font = "10px Arial";
+      this.ctx.fillText(
+        player.currentBehavior,
+        player.x,
+        player.y + player.radius + 20
+      );
     }
   }
 

@@ -15,6 +15,11 @@ class Player {
     // Power-up properties
     this.isTransparent = false;
     this.transparencyEndTime = 0;
+
+    // Stun properties
+    this.isStunned = false;
+    this.stunEndTime = 0;
+    this.canCatchAgainTime = 0; // Timeout before being able to catch again
   }
 
   generateRandomColor() {
@@ -36,6 +41,11 @@ class Player {
   }
 
   move(dx, dy, deltaTime, gameWidth, gameHeight, obstacles = []) {
+    // Check if player is stunned - if so, don't allow movement
+    if (this.isStunned) {
+      return;
+    }
+
     // Store current velocity for prediction
     this.velocity = { dx, dy };
 
@@ -113,6 +123,16 @@ class Player {
   }
 
   canCatch(other) {
+    // Check if we're still in the timeout period after becoming "it"
+    if (Date.now() < this.canCatchAgainTime) {
+      return false;
+    }
+
+    // Check if the target is stunned (can't catch stunned players)
+    if (other.isStunned) {
+      return false;
+    }
+
     return (
       this.isIt && this.distanceTo(other) <= this.radius + other.radius + 5
     );
@@ -123,11 +143,28 @@ class Player {
     this.transparencyEndTime = Date.now() + duration;
   }
 
+  // Stun the player for a short duration
+  stun(duration = 1000) { // Default 1 second stun
+    this.isStunned = true;
+    this.stunEndTime = Date.now() + duration;
+  }
+
+  // Set the timeout before player can catch again
+  setCatchTimeout(timeout = 1000) { // Default 1 second timeout
+    this.canCatchAgainTime = Date.now() + timeout;
+  }
+
   updatePowerUps(currentTime) {
     // Check if transparency expired
     if (this.isTransparent && currentTime >= this.transparencyEndTime) {
       this.isTransparent = false;
       this.transparencyEndTime = 0;
+    }
+
+    // Check if stun expired
+    if (this.isStunned && currentTime >= this.stunEndTime) {
+      this.isStunned = false;
+      this.stunEndTime = 0;
     }
   }
 
@@ -141,6 +178,7 @@ class Player {
       color: this.color,
       radius: this.radius,
       isTransparent: this.isTransparent,
+      isStunned: this.isStunned,
     };
   }
 }
