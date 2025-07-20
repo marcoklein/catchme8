@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CatchMe - Multiplayer Catch Game</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div id="container">
+      <div id="ui">
+        <h1>CatchMe</h1>
+        <div id="gameInfo">
+          <div id="playerName">Player: <span id="playerNameText">-</span></div>
+          <div id="gameStatus">
+            Status: <span id="gameStatusText">Waiting to join...</span>
+          </div>
+          <div id="timeRemaining">
+            Time: <span id="timeRemainingText">-</span>
+          </div>
+          <div id="playerCount">
+            Players: <span id="playerCountText">0</span>
+          </div>
+        </div>
+        <div id="controls">
+          <p>Use WASD or Arrow Keys to move</p>
+          <p>If you're "IT" (glowing), catch other players!</p>
+        </div>
+      </div>
+
+      <div id="joinForm">
+        <h2>Enter Your Name</h2>
+        <input
+          type="text"
+          id="nameInput"
+          placeholder="Your name"
+          maxlength="15"
+          autocomplete="off"
+          autofocus
+        />
+        <button id="joinButton">Join Game</button>
+        <div id="errorMessage"></div>
+      </div>
+
+      <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+      <div id="gameMessages"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/network.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/game.js"></script>
+  </body>
+</html>
