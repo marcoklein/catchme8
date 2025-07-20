@@ -11,7 +11,7 @@ class Player {
     this.lastUpdate = Date.now();
     this.lastMovement = Date.now();
     this.velocity = { dx: 0, dy: 0 }; // Current movement direction
-    
+
     // Power-up properties
     this.isTransparent = false;
     this.transparencyEndTime = 0;
@@ -113,7 +113,7 @@ class Player {
   canCatch(other) {
     // Can't catch transparent players
     if (other.isTransparent) return false;
-    
+
     return (
       this.isIt && this.distanceTo(other) <= this.radius + other.radius + 5
     );

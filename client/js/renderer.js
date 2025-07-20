@@ -131,23 +131,33 @@ class Renderer {
 
       this.ctx.globalAlpha = alpha;
 
-      if (powerUp.type === 'transparency') {
+      if (powerUp.type === "transparency") {
         // Draw transparency power-up with special effect
         const gradient = this.ctx.createRadialGradient(
-          powerUp.x, powerUp.y, 0,
-          powerUp.x, powerUp.y, powerUp.radius * pulseScale
+          powerUp.x,
+          powerUp.y,
+          0,
+          powerUp.x,
+          powerUp.y,
+          powerUp.radius * pulseScale
         );
-        gradient.addColorStop(0, 'rgba(173, 216, 230, 0.9)'); // Light blue center
-        gradient.addColorStop(0.5, 'rgba(135, 206, 250, 0.7)'); // Sky blue
-        gradient.addColorStop(1, 'rgba(70, 130, 180, 0.3)'); // Steel blue edge
+        gradient.addColorStop(0, "rgba(173, 216, 230, 0.9)"); // Light blue center
+        gradient.addColorStop(0.5, "rgba(135, 206, 250, 0.7)"); // Sky blue
+        gradient.addColorStop(1, "rgba(70, 130, 180, 0.3)"); // Steel blue edge
 
         this.ctx.fillStyle = gradient;
         this.ctx.beginPath();
-        this.ctx.arc(powerUp.x, powerUp.y, powerUp.radius * pulseScale, 0, Math.PI * 2);
+        this.ctx.arc(
+          powerUp.x,
+          powerUp.y,
+          powerUp.radius * pulseScale,
+          0,
+          Math.PI * 2
+        );
         this.ctx.fill();
 
         // Add sparkle effect
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        this.ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
         this.ctx.beginPath();
         this.ctx.arc(powerUp.x - 3, powerUp.y - 3, 2, 0, Math.PI * 2);
         this.ctx.fill();
@@ -156,10 +166,16 @@ class Renderer {
         this.ctx.fill();
 
         // Draw border
-        this.ctx.strokeStyle = 'rgba(70, 130, 180, 0.8)';
+        this.ctx.strokeStyle = "rgba(70, 130, 180, 0.8)";
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
-        this.ctx.arc(powerUp.x, powerUp.y, powerUp.radius * pulseScale, 0, Math.PI * 2);
+        this.ctx.arc(
+          powerUp.x,
+          powerUp.y,
+          powerUp.radius * pulseScale,
+          0,
+          Math.PI * 2
+        );
         this.ctx.stroke();
       }
     });
@@ -169,6 +185,11 @@ class Renderer {
 
   drawPlayer(player) {
     const isMyPlayer = player.id === this.myPlayerId;
+
+    // If player is transparent, don't render them at all
+    if (player.isTransparent) {
+      return;
+    }
 
     // Store previous position for trail effect
     if (!this.interpolationBuffer.has(player.id)) {
@@ -218,11 +239,6 @@ class Renderer {
     // Remove faded trail points
     playerData.trail = playerData.trail.filter((point) => point.alpha > 0.1);
 
-    // Set transparency if player has transparency power-up
-    if (player.isTransparent) {
-      this.ctx.globalAlpha = 0.3;
-    }
-
     // Draw player circle
     this.ctx.beginPath();
     this.ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -253,23 +269,6 @@ class Renderer {
       this.ctx.setLineDash([5, 5]);
       this.ctx.stroke();
       this.ctx.setLineDash([]);
-    }
-
-    // Reset transparency
-    if (player.isTransparent) {
-      this.ctx.globalAlpha = 1.0;
-      
-      // Add special transparency effect
-      this.ctx.save();
-      this.ctx.globalAlpha = 0.6;
-      this.ctx.strokeStyle = 'rgba(173, 216, 230, 0.8)';
-      this.ctx.lineWidth = 3;
-      this.ctx.setLineDash([3, 3]);
-      this.ctx.beginPath();
-      this.ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2);
-      this.ctx.stroke();
-      this.ctx.setLineDash([]);
-      this.ctx.restore();
     }
 
     // Draw player name

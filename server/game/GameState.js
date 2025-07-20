@@ -49,7 +49,7 @@ class GameState {
           id: `powerup_${index}`,
           x: pos.x,
           y: pos.y,
-          type: 'transparency',
+          type: "transparency",
           radius: 15,
           active: true,
           duration: 5000, // 5 seconds
@@ -230,11 +230,11 @@ class GameState {
   checkPowerUpCollision(player) {
     for (const powerUp of this.powerUps) {
       if (!powerUp.active) continue;
-      
+
       const dx = player.x - powerUp.x;
       const dy = player.y - powerUp.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      
+
       if (distance < player.radius + powerUp.radius) {
         this.collectPowerUp(player, powerUp);
         return powerUp;
@@ -246,19 +246,19 @@ class GameState {
   collectPowerUp(player, powerUp) {
     // Deactivate the power-up
     powerUp.active = false;
-    
+
     // Apply power-up effect to player
-    if (powerUp.type === 'transparency') {
+    if (powerUp.type === "transparency") {
       player.activateTransparency(powerUp.duration);
     }
-    
+
     // Set respawn timer
     this.powerUpRespawnTimer.set(powerUp.id, Date.now() + powerUp.respawnTime);
   }
 
   updatePowerUps() {
     const now = Date.now();
-    
+
     // Check for power-ups to respawn
     for (const powerUp of this.powerUps) {
       if (!powerUp.active) {
@@ -269,7 +269,7 @@ class GameState {
         }
       }
     }
-    
+
     // Update player power-up timers
     for (const player of this.players.values()) {
       player.updatePowerUps(now);
@@ -284,7 +284,7 @@ class GameState {
       gameWidth: this.gameWidth,
       gameHeight: this.gameHeight,
       obstacles: this.obstacles,
-      powerUps: this.powerUps.filter(p => p.active), // Only send active power-ups
+      powerUps: this.powerUps.filter((p) => p.active), // Only send active power-ups
     };
   }
 }
