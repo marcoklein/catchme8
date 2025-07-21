@@ -4,6 +4,7 @@ class Game {
     this.myPlayerId = null;
     this.gameActive = false;
     this.lastUpdate = Date.now();
+    this.localPlayerState = null; // Store server state for UI purposes only
 
     this.initializeUI();
     this.setupCanvas();
@@ -84,6 +85,18 @@ class Game {
   updateGameState(gameState) {
     this.gameState = gameState;
 
+    // Store player ID for rendering but rely purely on server state
+    if (this.myPlayerId && gameState.players) {
+      const serverPlayer = gameState.players.find(
+        (p) => p.id === this.myPlayerId
+      );
+      if (serverPlayer) {
+        // No client-side prediction - just store the server state directly
+        this.localPlayerState = { ...serverPlayer };
+      }
+    }
+
+    // Pass server state directly to renderer - no modifications
     renderer.setGameState(gameState);
 
     // Update UI elements
@@ -125,12 +138,13 @@ class Game {
     const now = Date.now();
     const deltaTime = now - this.lastUpdate;
 
-    // Update input
+    // Only handle input - no client-side prediction
     if (this.gameActive && this.myPlayerId) {
-      input.update();
+      const movement = input.update();
+      // Input is sent to server but no local position changes are made
     }
 
-    // Render the game
+    // Render the game using only server-authoritative state
     renderer.render();
 
     this.lastUpdate = now;

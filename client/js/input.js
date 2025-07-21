@@ -88,9 +88,20 @@ class InputManager {
       dy !== this.movement.dy ||
       (shouldSend && (dx !== 0 || dy !== 0))
     ) {
+      // Store previous movement to detect stopping
+      const wasMoving = this.movement.dx !== 0 || this.movement.dy !== 0;
+      const isNowStopped = dx === 0 && dy === 0;
+
       this.movement = { dx, dy };
       network.sendMovement(this.movement);
       this.lastMovementSent = now;
+
+      // If player just stopped, immediately send another stop signal for better sync
+      if (wasMoving && isNowStopped) {
+        setTimeout(() => {
+          network.sendMovement({ dx: 0, dy: 0 });
+        }, 16); // Send stop confirmation after one frame
+      }
     }
 
     return this.movement;

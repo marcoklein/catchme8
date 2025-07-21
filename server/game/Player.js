@@ -7,7 +7,7 @@ class Player {
     this.isIt = false;
     this.color = this.generateRandomColor();
     this.radius = 20;
-    this.speed = 200; // pixels per second
+    this.speed = 300; // pixels per second - increased for faster gameplay
     this.lastUpdate = Date.now();
     this.lastMovement = Date.now();
     this.velocity = { dx: 0, dy: 0 }; // Current movement direction

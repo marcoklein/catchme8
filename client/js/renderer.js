@@ -4,10 +4,38 @@ class Renderer {
     this.ctx = canvas.getContext("2d");
     this.gameState = null;
     this.myPlayerId = null;
-    this.interpolationBuffer = new Map(); // Store previous positions for smooth interpolation
+    this.interpolationBuffer = new Map(); // Store interpolation data for each player
+    this.lastServerUpdate = Date.now();
+    this.serverUpdateInterval = 1000 / 30; // Server broadcasts at 30 FPS
+    this.interpolationTime = 150; // 150ms interpolation buffer for smooth movement
+    this.networkJitterBuffer = []; // Track network timing for adaptive interpolation
+    this.maxJitterSamples = 10;
   }
 
   setGameState(gameState) {
+    const now = Date.now();
+
+    // Track network jitter for adaptive interpolation
+    if (this.lastServerUpdate > 0) {
+      const actualInterval = now - this.lastServerUpdate;
+      this.networkJitterBuffer.push(actualInterval);
+      if (this.networkJitterBuffer.length > this.maxJitterSamples) {
+        this.networkJitterBuffer.shift();
+      }
+
+      // Adapt interpolation time based on network variance
+      this.adaptInterpolationTime();
+    }
+
+    this.lastServerUpdate = now;
+
+    // Update interpolation data for each player
+    if (this.gameState && gameState) {
+      gameState.players.forEach((player) => {
+        this.updatePlayerInterpolation(player, now);
+      });
+    }
+
     this.gameState = gameState;
   }
 
@@ -15,8 +43,243 @@ class Renderer {
     this.myPlayerId = playerId;
   }
 
+  adaptInterpolationTime() {
+    if (this.networkJitterBuffer.length < 3) return;
+
+    // Calculate network variance
+    const intervals = this.networkJitterBuffer;
+    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+    const variance =
+      intervals.reduce((sum, interval) => {
+        return sum + Math.pow(interval - avgInterval, 2);
+      }, 0) / intervals.length;
+
+    const jitter = Math.sqrt(variance);
+
+    // Adapt interpolation time: base 150ms + 2x jitter (clamped between 100-300ms)
+    const adaptiveTime = Math.max(100, Math.min(300, 150 + jitter * 2));
+    this.interpolationTime = adaptiveTime;
+  }
+
+  extrapolatePosition(player, currentTime, data) {
+    if (!data || data.positions.length < 2) {
+      return { x: player.x, y: player.y };
+    }
+
+    // Use the last two positions to calculate velocity
+    const pos1 = data.positions[data.positions.length - 2];
+    const pos2 = data.positions[data.positions.length - 1];
+
+    const timeDiff = pos2.timestamp - pos1.timestamp;
+    if (timeDiff <= 0) return { x: pos2.x, y: pos2.y };
+
+    const velocityX = (pos2.x - pos1.x) / timeDiff;
+    const velocityY = (pos2.y - pos1.y) / timeDiff;
+
+    // Extrapolate forward from the last known position
+    const extrapolateTime = currentTime - pos2.timestamp;
+    const maxExtrapolation = 100; // Don't extrapolate more than 100ms
+    const clampedTime = Math.min(extrapolateTime, maxExtrapolation);
+
+    return {
+      x: pos2.x + velocityX * clampedTime,
+      y: pos2.y + velocityY * clampedTime,
+    };
+  }
+
+  updatePlayerInterpolation(player, timestamp) {
+    if (!this.interpolationBuffer.has(player.id)) {
+      this.interpolationBuffer.set(player.id, {
+        positions: [],
+        trail: [],
+        lastUpdate: timestamp,
+      });
+    }
+
+    const data = this.interpolationBuffer.get(player.id);
+
+    // Add new position with timestamp
+    data.positions.push({
+      x: player.x,
+      y: player.y,
+      timestamp: timestamp,
+      isIt: player.isIt,
+      isTransparent: player.isTransparent,
+      isStunned: player.isStunned,
+    });
+
+    // Keep only the last several positions for interpolation
+    const maxPositions = 8; // Increased from 3 to 8 for better interpolation
+    if (data.positions.length > maxPositions) {
+      data.positions = data.positions.slice(-maxPositions);
+    }
+
+    data.lastUpdate = timestamp;
+  }
+
+  getInterpolatedPlayerPosition(player, currentTime) {
+    const data = this.interpolationBuffer.get(player.id);
+    if (!data || data.positions.length === 0) {
+      return { x: player.x, y: player.y };
+    }
+
+    // Apply consistent interpolation to all players - no special handling for local player
+    // All movement is now based purely on server-authoritative state
+    const interpolationDelay = this.interpolationTime; // Same delay for all players
+
+    const positions = data.positions;
+    const renderTime = currentTime - interpolationDelay;
+
+    // Find the two positions to interpolate between
+    let prevPos = null;
+    let nextPos = null;
+
+    for (let i = 0; i < positions.length - 1; i++) {
+      if (
+        positions[i].timestamp <= renderTime &&
+        positions[i + 1].timestamp >= renderTime
+      ) {
+        prevPos = positions[i];
+        nextPos = positions[i + 1];
+        break;
+      }
+    }
+
+    // If we don't have two positions to interpolate between, use extrapolation
+    if (!prevPos || !nextPos) {
+      // Try to extrapolate from available data
+      if (positions.length >= 2) {
+        return this.extrapolatePosition(player, renderTime, data);
+      }
+
+      // Fallback to latest position with smooth transition
+      const latest = positions[positions.length - 1];
+      return this.smoothTransitionToTarget(
+        player.id,
+        { x: latest.x, y: latest.y },
+        currentTime
+      );
+    }
+
+    // Calculate interpolation factor (0 to 1)
+    const timeDiff = nextPos.timestamp - prevPos.timestamp;
+    const factor =
+      timeDiff > 0 ? (renderTime - prevPos.timestamp) / timeDiff : 0;
+
+    // Clamp factor between 0 and 1
+    const clampedFactor = Math.max(0, Math.min(1, factor));
+
+    // Use Hermite interpolation for smoother movement
+    return this.hermiteInterpolation(prevPos, nextPos, clampedFactor, data);
+  }
+
+  hermiteInterpolation(pos1, pos2, t, data) {
+    // Simple Hermite interpolation using tangent estimation
+    const positions = data.positions;
+
+    // Estimate velocities (tangents) at the two points
+    let vel1 = { x: 0, y: 0 };
+    let vel2 = { x: 0, y: 0 };
+
+    // Find velocity at pos1
+    const pos1Index = positions.indexOf(pos1);
+    if (pos1Index > 0) {
+      const prev = positions[pos1Index - 1];
+      const timeDiff = pos1.timestamp - prev.timestamp;
+      if (timeDiff > 0) {
+        vel1.x = (pos1.x - prev.x) / timeDiff;
+        vel1.y = (pos1.y - prev.y) / timeDiff;
+      }
+    }
+
+    // Find velocity at pos2
+    const pos2Index = positions.indexOf(pos2);
+    if (pos2Index < positions.length - 1) {
+      const next = positions[pos2Index + 1];
+      const timeDiff = next.timestamp - pos2.timestamp;
+      if (timeDiff > 0) {
+        vel2.x = (next.x - pos2.x) / timeDiff;
+        vel2.y = (next.y - pos2.y) / timeDiff;
+      }
+    }
+
+    // Hermite basis functions
+    const t2 = t * t;
+    const t3 = t2 * t;
+
+    const h1 = 2 * t3 - 3 * t2 + 1;
+    const h2 = -2 * t3 + 3 * t2;
+    const h3 = t3 - 2 * t2 + t;
+    const h4 = t3 - t2;
+
+    // Scale tangents by time difference
+    const timeDiff = pos2.timestamp - pos1.timestamp;
+
+    return {
+      x:
+        h1 * pos1.x +
+        h2 * pos2.x +
+        h3 * vel1.x * timeDiff +
+        h4 * vel2.x * timeDiff,
+      y:
+        h1 * pos1.y +
+        h2 * pos2.y +
+        h3 * vel1.y * timeDiff +
+        h4 * vel2.y * timeDiff,
+    };
+  }
+
+  smoothTransitionToTarget(playerId, targetPos, currentTime) {
+    // Get current interpolation data
+    const data = this.interpolationBuffer.get(playerId);
+    if (!data) return targetPos;
+
+    // Store transition target if not exists
+    if (!data.transitionTarget) {
+      data.transitionTarget = targetPos;
+      data.transitionStart = currentTime;
+      data.transitionDuration = 100; // 100ms smooth transition
+    }
+
+    // Check if we need a new transition
+    const targetDistance = Math.sqrt(
+      Math.pow(targetPos.x - data.transitionTarget.x, 2) +
+        Math.pow(targetPos.y - data.transitionTarget.y, 2)
+    );
+
+    if (targetDistance > 5) {
+      // New target significantly different
+      data.transitionTarget = targetPos;
+      data.transitionStart = currentTime;
+    }
+
+    // Calculate transition progress
+    const elapsed = currentTime - data.transitionStart;
+    const progress = Math.min(1, elapsed / data.transitionDuration);
+
+    // Use the last known position if available
+    const startPos =
+      data.positions.length > 0
+        ? data.positions[data.positions.length - 1]
+        : targetPos;
+
+    // Smooth transition using easing
+    const easedProgress = this.easeOutCubic(progress);
+
+    return {
+      x: startPos.x + (data.transitionTarget.x - startPos.x) * easedProgress,
+      y: startPos.y + (data.transitionTarget.y - startPos.y) * easedProgress,
+    };
+  }
+
+  easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
   render() {
     if (!this.gameState) return;
+
+    const currentTime = Date.now();
 
     // Clear canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -30,9 +293,9 @@ class Renderer {
     // Draw power-ups
     this.drawPowerUps();
 
-    // Draw all players
+    // Draw all players with interpolation
     this.gameState.players.forEach((player) => {
-      this.drawPlayer(player);
+      this.drawPlayer(player, currentTime);
     });
 
     // Draw UI elements
@@ -183,7 +446,7 @@ class Renderer {
     this.ctx.restore();
   }
 
-  drawPlayer(player) {
+  drawPlayer(player, currentTime) {
     const isMyPlayer = player.id === this.myPlayerId;
 
     // If player is transparent and it's not the current player, don't render them
@@ -191,34 +454,45 @@ class Renderer {
       return;
     }
 
-    // Store previous position for trail effect
+    // Get interpolated position for smooth movement
+    const interpolatedPos = this.getInterpolatedPlayerPosition(
+      player,
+      currentTime
+    );
+    const renderX = interpolatedPos.x;
+    const renderY = interpolatedPos.y;
+
+    // Initialize or update interpolation buffer for trail effect
     if (!this.interpolationBuffer.has(player.id)) {
       this.interpolationBuffer.set(player.id, {
-        prevX: player.x,
-        prevY: player.y,
+        positions: [],
         trail: [],
+        lastUpdate: currentTime,
       });
     }
 
     const playerData = this.interpolationBuffer.get(player.id);
 
     // Add to trail if player moved significantly
-    const dx = player.x - playerData.prevX;
-    const dy = player.y - playerData.prevY;
+    const lastTrailPos =
+      playerData.trail.length > 0
+        ? playerData.trail[playerData.trail.length - 1]
+        : { x: renderX, y: renderY };
+
+    const dx = renderX - lastTrailPos.x;
+    const dy = renderY - lastTrailPos.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 2) {
       playerData.trail.push({
-        x: playerData.prevX,
-        y: playerData.prevY,
+        x: lastTrailPos.x,
+        y: lastTrailPos.y,
         alpha: 1.0,
       });
       // Keep trail length manageable
       if (playerData.trail.length > 5) {
         playerData.trail.shift();
       }
-      playerData.prevX = player.x;
-      playerData.prevY = player.y;
     }
 
     // Draw trail
@@ -244,9 +518,9 @@ class Renderer {
       this.ctx.globalAlpha = 0.5; // Make own player semi-transparent to show they're invisible to others
     }
 
-    // Draw player circle
+    // Draw player circle using interpolated position
     this.ctx.beginPath();
-    this.ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    this.ctx.arc(renderX, renderY, player.radius, 0, Math.PI * 2);
     this.ctx.fillStyle = player.color;
     this.ctx.fill();
 
@@ -267,13 +541,7 @@ class Renderer {
       const glowSize = 8 + Math.sin(time * 3) * 3;
 
       this.ctx.beginPath();
-      this.ctx.arc(
-        player.x,
-        player.y,
-        player.radius + glowSize,
-        0,
-        Math.PI * 2
-      );
+      this.ctx.arc(renderX, renderY, player.radius + glowSize, 0, Math.PI * 2);
       this.ctx.strokeStyle = "#FFD700";
       this.ctx.lineWidth = 4;
       this.ctx.setLineDash([5, 5]);
@@ -289,7 +557,7 @@ class Renderer {
       this.ctx.lineWidth = 3;
       this.ctx.setLineDash([4, 4]);
       this.ctx.beginPath();
-      this.ctx.arc(player.x, player.y, player.radius + 8, 0, Math.PI * 2);
+      this.ctx.arc(renderX, renderY, player.radius + 8, 0, Math.PI * 2);
       this.ctx.stroke();
       this.ctx.setLineDash([]);
       this.ctx.restore();
@@ -305,7 +573,7 @@ class Renderer {
       this.ctx.lineWidth = 4;
       this.ctx.setLineDash([2, 2]);
       this.ctx.beginPath();
-      this.ctx.arc(player.x, player.y, player.radius + 6, 0, Math.PI * 2);
+      this.ctx.arc(renderX, renderY, player.radius + 6, 0, Math.PI * 2);
       this.ctx.stroke();
       this.ctx.setLineDash([]);
       this.ctx.restore();
@@ -322,13 +590,13 @@ class Renderer {
       displayName = `[STUNNED] ${displayName}`;
       this.ctx.fillStyle = "#FF0000"; // Red text for stunned players
     }
-    this.ctx.fillText(displayName, player.x, player.y - player.radius - 10);
+    this.ctx.fillText(displayName, renderX, renderY - player.radius - 10);
 
     // Draw "IT" label
     if (player.isIt) {
       this.ctx.fillStyle = "#FFD700";
       this.ctx.font = "bold 14px Arial";
-      this.ctx.fillText("IT!", player.x, player.y + 5);
+      this.ctx.fillText("IT!", renderX, renderY + 5);
     }
 
     // Draw AI behavior indicator (for debugging - small text under AI players)
@@ -337,8 +605,8 @@ class Renderer {
       this.ctx.font = "10px Arial";
       this.ctx.fillText(
         player.currentBehavior,
-        player.x,
-        player.y + player.radius + 20
+        renderX,
+        renderY + player.radius + 20
       );
     }
   }

@@ -42,7 +42,7 @@ catchme-8/
 
 - **Game Field**: 800x600 pixels
 - **Player Size**: 20px radius circles
-- **Movement Speed**: 200 pixels/second
+- **Movement Speed**: 300 pixels/second
 - **Catch Distance**: 25px (player radius + small buffer)
 - **Maximum Players**: 8
 - **Minimum Players**: 2 (auto-start)
@@ -69,7 +69,7 @@ catchme-8/
 - **Movement Model**: Server-authoritative (no client-side prediction)
 - **Boundaries**: Players cannot move outside game field
 - **Collision Detection**: Circle-based collision for tagging and obstacle avoidance
-- **Speed Variation**: "IT" player receives 30% speed boost (260 vs 200 pixels/second)
+- **Speed Variation**: "IT" player receives 30% speed boost (390 vs 300 pixels/second)
 - **Obstacle Collision**: Players cannot move through static obstacles
 
 ## Server Architecture
@@ -112,7 +112,7 @@ catchme-8/
   - `id`, `name`, `x`, `y`: Basic player data
   - `isIt`: Boolean "IT" status
   - `color`: Randomly assigned color
-  - `speed`: 200 pixels/second (base speed)
+  - `speed`: 300 pixels/second (base speed)
   - `velocity`: Current movement direction
   - `isTransparent`: Boolean transparency power-up status
   - `transparencyEndTime`: Timestamp for transparency expiration

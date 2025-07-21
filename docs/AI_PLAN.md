@@ -11,7 +11,7 @@ This document outlines the implementation plan for adding AI (bot) players to th
 - **Player Class**: Located in `server/game/Player.js`
 - **Properties**: id, name, position (x,y), isIt status, color, speed, power-ups
 - **Movement**: Server-authoritative with obstacle collision detection
-- **Speed**: 200 pixels/second (260 for "it" player with 30% boost)
+- **Speed**: 300 pixels/second (390 for "it" player with 30% boost)
 - **Power-ups**: Transparency (5s duration, still catchable)
 - **Obstacles**: Static rectangles and circles for strategic gameplay
 
