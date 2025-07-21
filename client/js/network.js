@@ -31,13 +31,43 @@ class NetworkManager {
       game.onPlayerTagged(data);
     });
 
-    this.socket.on("gameEnd", (reason) => {
-      game.onGameEnd(reason);
+    this.socket.on("scoreUpdate", (data) => {
+      game.onScoreUpdate(data);
     });
 
-    this.socket.on("powerUpCollected", (data) => {
-      const message = `${data.playerName} collected a ${data.powerUpType} power-up!`;
-      this.showMessage(message, "info");
+    this.socket.on("starCollected", (data) => {
+      game.onStarCollected(data);
+    });
+
+    this.socket.on("stunOrbCollected", (data) => {
+      if (data.onlyForIt) {
+        this.showMessage(
+          `${data.playerName} collected stun orb (IT only!)`,
+          "warning"
+        );
+      } else if (data.stunActivated) {
+        this.showMessage(
+          `${data.playerName} collected stun orb - pulse activated!`,
+          "danger"
+        );
+      } else {
+        this.showMessage(`${data.playerName} collected stun orb!`, "info");
+      }
+    });
+
+    this.socket.on("stunPulseActivated", (data) => {
+      this.showMessage(`${data.itPlayerName} activated stun pulse!`, "danger");
+
+      // Show visual feedback for affected players
+      data.affectedPlayers.forEach((affectedPlayer) => {
+        if (affectedPlayer.id === this.socket.id) {
+          this.showMessage("You were stunned!", "warning");
+        }
+      });
+    });
+
+    this.socket.on("gameEnd", (reason) => {
+      game.onGameEnd(reason);
     });
 
     this.socket.on("joinError", (error) => {

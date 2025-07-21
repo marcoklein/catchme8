@@ -11,6 +11,18 @@ class GameState {
     this.obstacles = this.generateObstacles();
     this.powerUps = this.generatePowerUps();
     this.powerUpRespawnTimer = new Map();
+
+    // Stars system
+    this.stars = this.generateStars();
+    this.starRespawnTimer = new Map();
+    this.maxActiveStars = 3;
+    this.starRespawnInterval = 8000; // 8 seconds base respawn
+
+    // Stun orbs system
+    this.stunOrbs = this.generateStunOrbs();
+    this.stunOrbRespawnTimer = new Map();
+    this.maxActiveStunOrbs = 2;
+    this.stunOrbRespawnInterval = 20000; // 20 seconds
   }
 
   generateObstacles() {
@@ -61,6 +73,128 @@ class GameState {
     return powerUps;
   }
 
+  generateStars() {
+    const stars = [];
+    const starPositions = [
+      { x: 200, y: 150 },
+      { x: 600, y: 150 },
+      { x: 200, y: 450 },
+      { x: 600, y: 450 },
+      { x: 400, y: 200 },
+      { x: 150, y: 300 },
+      { x: 650, y: 300 },
+      { x: 300, y: 350 },
+      { x: 500, y: 350 },
+    ];
+
+    // Select 3 random positions for initial stars
+    const selectedPositions = [];
+    const positionsCopy = [...starPositions]; // Create a copy to avoid modifying original
+
+    while (
+      selectedPositions.length < this.maxActiveStars &&
+      positionsCopy.length > 0
+    ) {
+      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
+      const pos = positionsCopy.splice(randomIndex, 1)[0];
+
+      // Only place star if it doesn't collide with obstacles
+      if (!this.checkObstacleCollision(pos.x, pos.y, 12)) {
+        selectedPositions.push(pos);
+      }
+    }
+
+    // Fallback: if no safe positions found, use default positions anyway
+    if (selectedPositions.length === 0) {
+      selectedPositions.push(
+        { x: 100, y: 100 },
+        { x: 700, y: 100 },
+        { x: 400, y: 500 }
+      );
+    }
+
+    // Ensure we have at least maxActiveStars positions
+    while (selectedPositions.length < this.maxActiveStars) {
+      selectedPositions.push({
+        x: 100 + Math.random() * 600,
+        y: 100 + Math.random() * 400,
+      });
+    }
+
+    selectedPositions.forEach((pos, index) => {
+      stars.push({
+        id: `star_${index}`,
+        x: pos.x,
+        y: pos.y,
+        type: "star",
+        radius: 12,
+        active: true,
+        spawnTime: Date.now(),
+        rotationAngle: Math.random() * Math.PI * 2, // Random initial rotation
+      });
+    });
+
+    return stars;
+  }
+
+  generateStunOrbs() {
+    const stunOrbs = [];
+    const stunOrbPositions = [
+      { x: 120, y: 200 },
+      { x: 680, y: 200 },
+      { x: 120, y: 400 },
+      { x: 680, y: 400 },
+      { x: 400, y: 120 },
+      { x: 400, y: 480 },
+      { x: 250, y: 300 },
+      { x: 550, y: 300 },
+    ];
+
+    // Select 2 random positions for initial stun orbs
+    const selectedPositions = [];
+    const positionsCopy = [...stunOrbPositions];
+
+    while (
+      selectedPositions.length < this.maxActiveStunOrbs &&
+      positionsCopy.length > 0
+    ) {
+      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
+      const pos = positionsCopy.splice(randomIndex, 1)[0];
+
+      if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
+        selectedPositions.push(pos);
+      }
+    }
+
+    // Fallback: if no safe positions found, use default positions anyway
+    if (selectedPositions.length === 0) {
+      selectedPositions.push({ x: 100, y: 100 }, { x: 700, y: 100 });
+    }
+
+    // Ensure we have at least maxActiveStunOrbs positions
+    while (selectedPositions.length < this.maxActiveStunOrbs) {
+      selectedPositions.push({
+        x: 100 + Math.random() * 600,
+        y: 100 + Math.random() * 400,
+      });
+    }
+
+    selectedPositions.forEach((pos, index) => {
+      stunOrbs.push({
+        id: `stunorb_${index}`,
+        x: pos.x,
+        y: pos.y,
+        type: "stunOrb",
+        radius: 15,
+        active: true,
+        spawnTime: Date.now(),
+        electricPhase: Math.random() * Math.PI * 2, // For animation
+      });
+    });
+
+    return stunOrbs;
+  }
+
   findSafeSpawnPosition() {
     const playerRadius = 20;
     const safePositions = [
@@ -107,7 +241,7 @@ class GameState {
 
     // If this is the first player, make them "it"
     if (this.players.size === 1) {
-      player.isIt = true;
+      player.becomeIt();
     }
 
     // Start game if we have minimum players
@@ -128,7 +262,7 @@ class GameState {
     // If the "it" player left, assign new "it" player
     if (wasIt && this.players.size > 0) {
       const newItPlayer = this.players.values().next().value;
-      newItPlayer.isIt = true;
+      newItPlayer.becomeIt();
     }
 
     // Stop game if not enough players
@@ -150,14 +284,14 @@ class GameState {
       const playerIds = Array.from(this.players.keys());
       const randomId = playerIds[Math.floor(Math.random() * playerIds.length)];
       const newItPlayer = this.players.get(randomId);
-      newItPlayer.isIt = true;
+      newItPlayer.becomeIt();
       console.log(
         `Assigned new "it" player: ${newItPlayer.name} (${randomId})`
       );
     } else if (itPlayers.length > 1) {
       // Multiple "it" players - keep only one
       for (let i = 1; i < itPlayers.length; i++) {
-        itPlayers[i].isIt = false;
+        itPlayers[i].stopBeingIt();
       }
       console.log(`Fixed multiple "it" players, kept: ${itPlayers[0].name}`);
     }
@@ -193,9 +327,12 @@ class GameState {
     }
 
     if (tagger.canCatch(target)) {
-      // Transfer "IT" status
-      tagger.isIt = false;
-      target.isIt = true;
+      // Award points for successful tag
+      tagger.awardTagPoints();
+
+      // Transfer "IT" status using new methods
+      tagger.stopBeingIt();
+      target.becomeIt();
 
       // Stun the player who was just caught (1 second)
       target.stun(1000);
@@ -339,6 +476,273 @@ class GameState {
     }
   }
 
+  checkStarCollision(player) {
+    for (const star of this.stars) {
+      if (!star.active) continue;
+
+      const dx = player.x - star.x;
+      const dy = player.y - star.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < player.radius + star.radius) {
+        this.collectStar(player, star);
+        return star;
+      }
+    }
+    return null;
+  }
+
+  checkStunOrbCollision(player) {
+    for (const stunOrb of this.stunOrbs) {
+      if (!stunOrb.active) continue;
+
+      const dx = player.x - stunOrb.x;
+      const dy = player.y - stunOrb.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < player.radius + stunOrb.radius) {
+        return stunOrb;
+      }
+    }
+    return null;
+  }
+
+  collectStunOrb(player, stunOrb) {
+    // Deactivate the stun orb
+    stunOrb.active = false;
+
+    // Auto-activate stun pulse only for IT players
+    if (player.isIt) {
+      player.startStunPulse();
+      // Execute immediate stun pulse effect
+      const affectedPlayers = this.executeStunPulse(player);
+
+      // Set respawn timer
+      this.stunOrbRespawnTimer.set(
+        stunOrb.id,
+        Date.now() + this.stunOrbRespawnInterval
+      );
+
+      return affectedPlayers;
+    }
+
+    // Set respawn timer for non-IT collection
+    this.stunOrbRespawnTimer.set(
+      stunOrb.id,
+      Date.now() + this.stunOrbRespawnInterval
+    );
+    return [];
+  }
+
+  executeStunPulse(itPlayer) {
+    const stunRadius = 80;
+    const stunDuration = 500;
+    const affectedPlayers = [];
+
+    for (const [playerId, player] of this.players) {
+      if (player.id === itPlayer.id) continue; // Don't stun self
+
+      const dx = player.x - itPlayer.x;
+      const dy = player.y - itPlayer.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance <= stunRadius) {
+        player.stun(stunDuration);
+        affectedPlayers.push({
+          id: player.id,
+          name: player.name,
+        });
+      }
+    }
+
+    return affectedPlayers;
+  }
+
+  collectStar(player, star) {
+    // Deactivate the star
+    star.active = false;
+
+    // Award points based on player IT status
+    const pointsAwarded = player.awardStarPoints();
+
+    // Set respawn timer
+    this.starRespawnTimer.set(star.id, Date.now() + this.starRespawnInterval);
+
+    return pointsAwarded;
+  }
+
+  updateStars() {
+    const now = Date.now();
+
+    // Update star rotation animations
+    for (const star of this.stars) {
+      if (star.active) {
+        star.rotationAngle += 0.02; // Slow rotation
+        if (star.rotationAngle > Math.PI * 2) {
+          star.rotationAngle -= Math.PI * 2;
+        }
+      }
+    }
+
+    // Check for stars to respawn
+    for (const star of this.stars) {
+      if (!star.active) {
+        const respawnTime = this.starRespawnTimer.get(star.id);
+        if (respawnTime && now >= respawnTime) {
+          // Find a new safe position for respawn
+          const newPosition = this.findSafeStarPosition();
+          if (newPosition) {
+            star.x = newPosition.x;
+            star.y = newPosition.y;
+            star.active = true;
+            star.spawnTime = now;
+            star.rotationAngle = Math.random() * Math.PI * 2;
+            this.starRespawnTimer.delete(star.id);
+          }
+        }
+      }
+    }
+  }
+
+  updateStunOrbs() {
+    const now = Date.now();
+
+    // Update electrical animation phase
+    for (const stunOrb of this.stunOrbs) {
+      if (stunOrb.active) {
+        stunOrb.electricPhase += 0.15; // Fast electrical animation
+        if (stunOrb.electricPhase > Math.PI * 2) {
+          stunOrb.electricPhase -= Math.PI * 2;
+        }
+      }
+    }
+
+    // Check for stun orbs to respawn
+    for (const stunOrb of this.stunOrbs) {
+      if (!stunOrb.active) {
+        const respawnTime = this.stunOrbRespawnTimer.get(stunOrb.id);
+        if (respawnTime && now >= respawnTime) {
+          // Find a new safe position for respawn
+          const newPosition = this.findSafeStunOrbPosition();
+          if (newPosition) {
+            stunOrb.x = newPosition.x;
+            stunOrb.y = newPosition.y;
+            stunOrb.active = true;
+            stunOrb.spawnTime = now;
+            stunOrb.electricPhase = Math.random() * Math.PI * 2;
+            this.stunOrbRespawnTimer.delete(stunOrb.id);
+          }
+        }
+      }
+    }
+  }
+
+  findSafeStunOrbPosition() {
+    const stunOrbPositions = [
+      { x: 120, y: 200 },
+      { x: 680, y: 200 },
+      { x: 120, y: 400 },
+      { x: 680, y: 400 },
+      { x: 400, y: 120 },
+      { x: 400, y: 480 },
+      { x: 250, y: 300 },
+      { x: 550, y: 300 },
+      { x: 300, y: 200 },
+      { x: 500, y: 200 },
+      { x: 300, y: 400 },
+      { x: 500, y: 400 },
+    ];
+
+    // Shuffle positions for randomness
+    for (let i = stunOrbPositions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [stunOrbPositions[i], stunOrbPositions[j]] = [
+        stunOrbPositions[j],
+        stunOrbPositions[i],
+      ];
+    }
+
+    // Find first safe position
+    for (const pos of stunOrbPositions) {
+      if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
+        // Also check if position is not too close to players
+        let tooClose = false;
+        for (const player of this.players.values()) {
+          const dx = pos.x - player.x;
+          const dy = pos.y - player.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < 60) {
+            // Minimum distance from players
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) {
+          return pos;
+        }
+      }
+    }
+
+    // Fallback to random position
+    return {
+      x: 120 + Math.random() * 560,
+      y: 120 + Math.random() * 360,
+    };
+  }
+
+  findSafeStarPosition() {
+    const starPositions = [
+      { x: 200, y: 150 },
+      { x: 600, y: 150 },
+      { x: 200, y: 450 },
+      { x: 600, y: 450 },
+      { x: 400, y: 200 },
+      { x: 150, y: 300 },
+      { x: 650, y: 300 },
+      { x: 300, y: 350 },
+      { x: 500, y: 350 },
+      { x: 250, y: 250 },
+      { x: 550, y: 250 },
+      { x: 400, y: 400 },
+    ];
+
+    // Shuffle positions for randomness
+    for (let i = starPositions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [starPositions[i], starPositions[j]] = [
+        starPositions[j],
+        starPositions[i],
+      ];
+    }
+
+    // Find first safe position
+    for (const pos of starPositions) {
+      if (!this.checkObstacleCollision(pos.x, pos.y, 12)) {
+        // Also check if position is not too close to players
+        let tooClose = false;
+        for (const player of this.players.values()) {
+          const dx = pos.x - player.x;
+          const dy = pos.y - player.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < 50) {
+            // Minimum distance from players
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) {
+          return pos;
+        }
+      }
+    }
+
+    // Fallback to random position if no safe position found
+    return {
+      x: 100 + Math.random() * 600,
+      y: 100 + Math.random() * 400,
+    };
+  }
+
   toJSON() {
     return {
       players: Array.from(this.players.values()).map((p) => p.toJSON()),
@@ -348,6 +752,8 @@ class GameState {
       gameHeight: this.gameHeight,
       obstacles: this.obstacles,
       powerUps: this.powerUps.filter((p) => p.active), // Only send active power-ups
+      stars: this.stars.filter((s) => s.active), // Only send active stars
+      stunOrbs: this.stunOrbs.filter((s) => s.active), // Only send active stun orbs
     };
   }
 }

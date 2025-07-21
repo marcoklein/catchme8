@@ -309,9 +309,22 @@ class Renderer {
     // Draw power-ups
     this.drawPowerUps();
 
+    // Draw stars
+    this.drawStars();
+
+    // Draw stun orbs
+    this.drawStunOrbs();
+
     // Draw all players with interpolation
     this.gameState.players.forEach((player) => {
       this.drawPlayer(player, currentTime);
+    });
+
+    // Draw stun pulse effects for IT players
+    this.gameState.players.forEach((player) => {
+      if (player.isIt && player.isPerformingStunPulse) {
+        this.drawStunPulseEffect(player);
+      }
     });
 
     // Draw UI elements
@@ -465,6 +478,223 @@ class Renderer {
     });
 
     this.ctx.restore();
+  }
+
+  drawStars() {
+    if (!this.gameState.stars) return;
+
+    this.ctx.save();
+
+    this.gameState.stars.forEach((star) => {
+      if (!star.active) return;
+
+      // Create a pulsing glow effect
+      const time = Date.now() * 0.003;
+      const pulseScale = 1 + Math.sin(time) * 0.15;
+      const glowAlpha = 0.6 + Math.sin(time * 2) * 0.3;
+
+      // Draw the glow background
+      this.ctx.globalAlpha = glowAlpha;
+      const glowGradient = this.ctx.createRadialGradient(
+        star.x,
+        star.y,
+        0,
+        star.x,
+        star.y,
+        star.radius * 2.5
+      );
+      glowGradient.addColorStop(0, "rgba(255, 215, 0, 0.8)"); // Gold center
+      glowGradient.addColorStop(0.5, "rgba(255, 215, 0, 0.4)"); // Gold mid
+      glowGradient.addColorStop(1, "rgba(255, 215, 0, 0)"); // Transparent edge
+
+      this.ctx.fillStyle = glowGradient;
+      this.ctx.beginPath();
+      this.ctx.arc(star.x, star.y, star.radius * 2.5, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      // Draw the star shape with rotation
+      this.ctx.globalAlpha = 1;
+      this.ctx.save();
+      this.ctx.translate(star.x, star.y);
+      this.ctx.rotate(star.rotationAngle);
+
+      // Create star gradient
+      const starGradient = this.ctx.createRadialGradient(
+        0,
+        0,
+        0,
+        0,
+        0,
+        star.radius
+      );
+      starGradient.addColorStop(0, "#FFD700"); // Gold center
+      starGradient.addColorStop(0.7, "#FFA500"); // Orange
+      starGradient.addColorStop(1, "#FF8C00"); // Dark orange edge
+
+      this.ctx.fillStyle = starGradient;
+      this.drawStar(0, 0, star.radius * pulseScale, 5, 0.5);
+
+      // Add sparkle effects
+      this.ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      for (let i = 0; i < 3; i++) {
+        const sparkleAngle = (time * 2 + (i * Math.PI * 2) / 3) % (Math.PI * 2);
+        const sparkleRadius = star.radius * 0.7;
+        const sparkleX = Math.cos(sparkleAngle) * sparkleRadius;
+        const sparkleY = Math.sin(sparkleAngle) * sparkleRadius;
+
+        this.ctx.beginPath();
+        this.ctx.arc(sparkleX, sparkleY, 1.5, 0, Math.PI * 2);
+        this.ctx.fill();
+      }
+
+      this.ctx.restore();
+    });
+
+    this.ctx.restore();
+  }
+
+  drawStunOrbs() {
+    if (!this.gameState.stunOrbs) return;
+
+    this.ctx.save();
+
+    this.gameState.stunOrbs.forEach((stunOrb) => {
+      if (!stunOrb.active) return;
+
+      // Create electrical animation
+      const time = Date.now() * 0.01;
+      const electricPhase = stunOrb.electricPhase + time;
+      const pulseScale = 1 + Math.sin(electricPhase * 3) * 0.2;
+      const sparkAlpha = 0.7 + Math.sin(electricPhase * 5) * 0.3;
+
+      this.ctx.globalAlpha = sparkAlpha;
+
+      // Draw electric blue gradient
+      const gradient = this.ctx.createRadialGradient(
+        stunOrb.x,
+        stunOrb.y,
+        0,
+        stunOrb.x,
+        stunOrb.y,
+        stunOrb.radius * pulseScale
+      );
+      gradient.addColorStop(0, "rgba(0, 191, 255, 0.9)"); // Deep sky blue center
+      gradient.addColorStop(0.5, "rgba(30, 144, 255, 0.7)"); // Dodger blue
+      gradient.addColorStop(1, "rgba(65, 105, 225, 0.3)"); // Royal blue edge
+
+      this.ctx.fillStyle = gradient;
+      this.ctx.beginPath();
+      this.ctx.arc(
+        stunOrb.x,
+        stunOrb.y,
+        stunOrb.radius * pulseScale,
+        0,
+        Math.PI * 2
+      );
+      this.ctx.fill();
+
+      // Draw electrical sparks
+      this.ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+      this.ctx.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        const angle = (electricPhase + (i * Math.PI) / 3) % (Math.PI * 2);
+        const sparkLength = stunOrb.radius + Math.sin(electricPhase * 4) * 5;
+        const startX = stunOrb.x + Math.cos(angle) * stunOrb.radius;
+        const startY = stunOrb.y + Math.sin(angle) * stunOrb.radius;
+        const endX = stunOrb.x + Math.cos(angle) * sparkLength;
+        const endY = stunOrb.y + Math.sin(angle) * sparkLength;
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(startX, startY);
+        this.ctx.lineTo(endX, endY);
+        this.ctx.stroke();
+      }
+
+      // Draw border
+      this.ctx.strokeStyle = "rgba(0, 191, 255, 0.8)";
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.arc(
+        stunOrb.x,
+        stunOrb.y,
+        stunOrb.radius * pulseScale,
+        0,
+        Math.PI * 2
+      );
+      this.ctx.stroke();
+    });
+
+    this.ctx.restore();
+  }
+
+  drawStunPulseEffect(player) {
+    if (!player.isPerformingStunPulse) return;
+
+    const elapsed = Date.now() - player.stunPulseStartTime;
+    const progress = elapsed / 3000; // 3 second duration
+    const radius = 80 * progress; // Expanding radius
+    const alpha = 1 - progress; // Fading out
+
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha * 0.4;
+
+    // Draw expanding electric circle
+    const gradient = this.ctx.createRadialGradient(
+      player.x,
+      player.y,
+      radius * 0.3,
+      player.x,
+      player.y,
+      radius
+    );
+    gradient.addColorStop(0, "rgba(0, 191, 255, 0.8)");
+    gradient.addColorStop(0.7, "rgba(30, 144, 255, 0.4)");
+    gradient.addColorStop(1, "rgba(65, 105, 225, 0.1)");
+
+    this.ctx.fillStyle = gradient;
+    this.ctx.beginPath();
+    this.ctx.arc(player.x, player.y, radius, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Draw electric border
+    this.ctx.strokeStyle = `rgba(0, 191, 255, ${alpha})`;
+    this.ctx.lineWidth = 3;
+    this.ctx.beginPath();
+    this.ctx.arc(player.x, player.y, radius, 0, Math.PI * 2);
+    this.ctx.stroke();
+
+    this.ctx.restore();
+  }
+
+  // Helper method to draw a star shape
+  drawStar(x, y, radius, points, innerRadiusRatio) {
+    const innerRadius = radius * innerRadiusRatio;
+    let angle = -Math.PI / 2; // Start from top
+    const angleStep = Math.PI / points;
+
+    this.ctx.beginPath();
+
+    for (let i = 0; i < points * 2; i++) {
+      const currentRadius = i % 2 === 0 ? radius : innerRadius;
+      const px = x + Math.cos(angle) * currentRadius;
+      const py = y + Math.sin(angle) * currentRadius;
+
+      if (i === 0) {
+        this.ctx.moveTo(px, py);
+      } else {
+        this.ctx.lineTo(px, py);
+      }
+
+      angle += angleStep;
+    }
+
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Add border
+    this.ctx.strokeStyle = "#B8860B"; // Dark golden rod
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
   }
 
   drawPlayer(player, currentTime) {

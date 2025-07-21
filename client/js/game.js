@@ -113,9 +113,112 @@ class Game {
             ? "You are IT!"
             : "Run!"
           : "Waiting for players...";
+
+      // Update player's score
+      document.getElementById("playerScoreText").textContent =
+        myPlayer.score || 0;
     }
 
+    // Update leaderboard
+    this.updateLeaderboard(gameState.players);
+
     this.gameActive = gameState.gameActive;
+  }
+
+  updateLeaderboard(players) {
+    const leaderboardDiv = document.getElementById("playerScores");
+
+    // Sort players by score (descending)
+    const sortedPlayers = [...players].sort(
+      (a, b) => (b.score || 0) - (a.score || 0)
+    );
+
+    // Generate leaderboard HTML
+    const leaderboardHTML = sortedPlayers
+      .map((player, index) => {
+        const isMyPlayer = player.id === this.myPlayerId;
+        const isItPlayer = player.isIt;
+        const classes = [];
+
+        if (isMyPlayer) classes.push("my-score");
+        if (isItPlayer) classes.push("it-player");
+
+        const rank = index + 1;
+        const rankEmoji =
+          rank === 1
+            ? "🥇"
+            : rank === 2
+            ? "🥈"
+            : rank === 3
+            ? "🥉"
+            : `${rank}.`;
+        const itIndicator = isItPlayer ? " 🎯" : "";
+
+        return `
+        <div class="score-entry ${classes.join(" ")}">
+          <span>${rankEmoji} ${player.name}${itIndicator}</span>
+          <span>${player.score || 0}</span>
+        </div>
+      `;
+      })
+      .join("");
+
+    leaderboardDiv.innerHTML = leaderboardHTML;
+  }
+
+  onScoreUpdate(data) {
+    // Show score change animation
+    this.showScoreChangeAnimation(data);
+
+    // Show message for significant events
+    if (data.reason === "successful_tag") {
+      network.showMessage(
+        `+${data.change} points for tagging ${data.playerName}!`,
+        "success"
+      );
+    } else if (data.reason === "star_collection") {
+      const points = data.change;
+      const bonus = points === 50 ? " (IT bonus!)" : "";
+      if (data.playerId === this.myPlayerId) {
+        network.showMessage(`⭐ +${points} points${bonus}`, "star");
+      }
+    }
+  }
+
+  onStarCollected(data) {
+    // Show star collection message for all players
+    const bonus = data.pointsAwarded === 50 ? " (IT bonus!)" : "";
+    network.showMessage(
+      `⭐ ${data.playerName} collected a star! +${data.pointsAwarded} points${bonus}`,
+      "star"
+    );
+  }
+
+  showScoreChangeAnimation(data) {
+    // Only show animation for the current player
+    if (data.playerId !== this.myPlayerId) return;
+
+    const changeElement = document.createElement("div");
+    changeElement.className = `score-change ${
+      data.change > 0 ? "positive" : "negative"
+    }`;
+    changeElement.textContent = `${data.change > 0 ? "+" : ""}${data.change}`;
+
+    // Position near the score display
+    const scoreElement = document.getElementById("playerScore");
+    const rect = scoreElement.getBoundingClientRect();
+
+    changeElement.style.left = `${rect.right + 10}px`;
+    changeElement.style.top = `${rect.top}px`;
+
+    document.body.appendChild(changeElement);
+
+    // Remove after animation
+    setTimeout(() => {
+      if (changeElement.parentNode) {
+        changeElement.parentNode.removeChild(changeElement);
+      }
+    }, 2000);
   }
 
   onPlayerTagged(data) {

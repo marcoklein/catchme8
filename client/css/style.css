@@ -152,6 +152,18 @@ h1 {
   background: rgba(255, 107, 107, 0.9);
 }
 
+.message.star {
+  border-left-color: #ffd700;
+  background: rgba(255, 215, 0, 0.9);
+  color: #000;
+}
+
+.message.success {
+  border-left-color: #00ff00;
+  background: rgba(0, 255, 0, 0.8);
+  color: #000;
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(100%);
@@ -251,4 +263,83 @@ h1 {
   background: rgba(255, 255, 255, 0.7);
   border-radius: 50%;
   transition: all 0.1s ease;
+}
+
+/* Score and Leaderboard Styles */
+#playerScore {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: #ffd700;
+}
+
+#leaderboard {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 15px;
+  border-radius: 10px;
+  margin: 15px 0;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+#leaderboard h3 {
+  margin-bottom: 10px;
+  color: #ffd700;
+  font-size: 1.2em;
+}
+
+#playerScores {
+  text-align: left;
+}
+
+.score-entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 10px;
+  margin: 3px 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  font-size: 0.9em;
+}
+
+.score-entry.my-score {
+  background: rgba(255, 215, 0, 0.2);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.score-entry.it-player {
+  background: rgba(255, 100, 100, 0.2);
+  border: 1px solid rgba(255, 100, 100, 0.3);
+}
+
+.score-change {
+  position: fixed;
+  font-weight: bold;
+  font-size: 1.2em;
+  pointer-events: none;
+  z-index: 1000;
+  animation: scorePopup 2s ease-out forwards;
+}
+
+.score-change.positive {
+  color: #00ff00;
+}
+
+.score-change.negative {
+  color: #ff4444;
+}
+
+@keyframes scorePopup {
+  0% {
+    opacity: 1;
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-40px) scale(1);
+  }
 }

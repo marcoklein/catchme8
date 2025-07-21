@@ -123,6 +123,9 @@ class GameManager {
         player.lastMovement = now;
       }
     }
+
+    // Update last update time for proper deltaTime calculation
+    this.lastUpdate = now;
   }
 
   // New server-authoritative input handler
@@ -262,6 +265,16 @@ class GameManager {
           tagged: otherPlayer.name,
           newIt: otherPlayer.id,
         });
+
+        // Emit score update for successful tag
+        this.io.to("game").emit("scoreUpdate", {
+          playerId: player.id,
+          playerName: player.name,
+          score: player.score,
+          change: +100,
+          reason: "successful_tag",
+        });
+
         break;
       }
     }
@@ -386,6 +399,9 @@ class GameManager {
       // Ensure there's always a player who is "it"
       this.gameState.ensureItPlayer();
 
+      // Update points system (deduct points for IT players)
+      this.updatePointsSystem(now);
+
       // Process all player inputs and calculate movements (server-authoritative)
       this.processPlayerMovements(deltaTime);
 
@@ -399,6 +415,12 @@ class GameManager {
 
       // Update power-ups (respawn timers, transparency expiration)
       this.gameState.updatePowerUps();
+
+      // Update stars (respawn timers, rotation animation)
+      this.gameState.updateStars();
+
+      // Update stun orbs (respawn timers, electrical animation)
+      this.gameState.updateStunOrbs();
 
       // Update game state
       if (this.gameState.isGameOver()) {
@@ -484,6 +506,57 @@ class GameManager {
       });
     }
 
+    // Check for star collection
+    const collectedStar = this.gameState.checkStarCollision(player);
+    if (collectedStar) {
+      const pointsAwarded = player.isIt ? 50 : 25;
+      this.io.to("game").emit("starCollected", {
+        playerId: player.id,
+        playerName: player.name,
+        starId: collectedStar.id,
+        pointsAwarded: pointsAwarded,
+        newScore: player.score,
+      });
+
+      // Also emit score update for consistent UI feedback
+      this.io.to("game").emit("scoreUpdate", {
+        playerId: player.id,
+        playerName: player.name,
+        score: player.score,
+        change: pointsAwarded,
+        reason: "star_collection",
+      });
+    }
+
+    // Check for stun orb collection
+    const collectedStunOrb = this.gameState.checkStunOrbCollision(player);
+    if (collectedStunOrb) {
+      const affectedPlayers = this.gameState.collectStunOrb(
+        player,
+        collectedStunOrb
+      );
+
+      this.io.to("game").emit("stunOrbCollected", {
+        playerId: player.id,
+        playerName: player.name,
+        stunOrbId: collectedStunOrb.id,
+        onlyForIt: !player.isIt,
+        stunActivated: player.isIt,
+        affectedPlayers: affectedPlayers,
+      });
+
+      // If stun was activated, notify about the pulse
+      if (player.isIt && affectedPlayers.length > 0) {
+        this.io.to("game").emit("stunPulseActivated", {
+          itPlayerId: player.id,
+          itPlayerName: player.name,
+          stunRadius: 80,
+          pulseDuration: 3000,
+          affectedPlayers: affectedPlayers,
+        });
+      }
+    }
+
     // Check for collisions/tags
     this.checkCollisions(player.id);
 
@@ -546,6 +619,41 @@ class GameManager {
     if (removedCount > 0) {
       this.broadcastGameState();
     }
+  }
+
+  // Points system update method
+  updatePointsSystem(now) {
+    let pointsChanged = false;
+
+    for (const player of this.gameState.players.values()) {
+      if (player.isIt && player.becameItTime && !player.isStunned) {
+        // Calculate time since last deduction
+        const lastDeduction = player.lastPointDeduction || player.becameItTime;
+        const timeSinceDeduction = now - lastDeduction;
+
+        // Deduct points every second
+        if (timeSinceDeduction >= 1000) {
+          const secondsToDeduct = Math.floor(timeSinceDeduction / 1000);
+          const pointsToDeduct = secondsToDeduct * 10;
+
+          player.deductItPoints(pointsToDeduct);
+          player.timeAsIt += timeSinceDeduction;
+          pointsChanged = true;
+
+          // Emit individual score update for immediate feedback
+          this.io.to("game").emit("scoreUpdate", {
+            playerId: player.id,
+            playerName: player.name,
+            score: player.score,
+            change: -pointsToDeduct,
+            reason: "being_it",
+          });
+        }
+      }
+    }
+
+    // If any points changed, we'll broadcast the full state in the normal cycle
+    // No need to force immediate broadcast here to avoid performance issues
   }
 }
 

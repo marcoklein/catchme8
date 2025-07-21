@@ -20,6 +20,19 @@ class Player {
     this.isStunned = false;
     this.stunEndTime = 0;
     this.canCatchAgainTime = 0; // Timeout before being able to catch again
+
+    // Points system properties
+    this.score = 0;
+    this.totalSuccessfulTags = 0;
+    this.totalStarsCollected = 0; // Track stars collected for statistics
+    this.timeAsIt = 0; // Total time spent being "IT" (for statistics)
+    this.becameItTime = null; // When player became "IT"
+    this.lastPointDeduction = null; // Last time points were deducted
+
+    // Stun pulse properties
+    this.isPerformingStunPulse = false;
+    this.stunPulseStartTime = 0;
+    this.stunPulseDuration = 3000; // 3 seconds
   }
 
   generateRandomColor() {
@@ -191,6 +204,61 @@ class Player {
       this.isStunned = false;
       this.stunEndTime = 0;
     }
+
+    // Update stun pulse animation
+    this.updateStunPulse(currentTime);
+  }
+
+  // Points system methods
+  becomeIt() {
+    this.isIt = true;
+    this.becameItTime = Date.now();
+    this.lastPointDeduction = null;
+  }
+
+  stopBeingIt() {
+    this.isIt = false;
+    if (this.becameItTime) {
+      this.timeAsIt += Date.now() - this.becameItTime;
+    }
+    this.becameItTime = null;
+    this.lastPointDeduction = null;
+  }
+
+  awardTagPoints() {
+    this.score += 100;
+    this.totalSuccessfulTags++;
+  }
+
+  awardStarPoints() {
+    const points = this.isIt ? 50 : 25; // IT players get double points
+    this.score += points;
+    this.totalStarsCollected++;
+    return points;
+  }
+
+  deductItPoints(pointsToDeduct) {
+    this.score = Math.max(0, this.score - pointsToDeduct);
+    this.lastPointDeduction = Date.now();
+  }
+
+  startStunPulse() {
+    if (this.isIt && !this.isStunned && !this.isPerformingStunPulse) {
+      this.isPerformingStunPulse = true;
+      this.stunPulseStartTime = Date.now();
+      return true;
+    }
+    return false;
+  }
+
+  updateStunPulse(currentTime) {
+    // Check if stun pulse animation has finished
+    if (this.isPerformingStunPulse) {
+      if (currentTime >= this.stunPulseStartTime + this.stunPulseDuration) {
+        this.isPerformingStunPulse = false;
+        this.stunPulseStartTime = 0;
+      }
+    }
   }
 
   toJSON() {
@@ -204,6 +272,9 @@ class Player {
       radius: this.radius,
       isTransparent: this.isTransparent,
       isStunned: this.isStunned,
+      score: this.score,
+      isPerformingStunPulse: this.isPerformingStunPulse,
+      stunPulseStartTime: this.stunPulseStartTime,
     };
   }
 }
