@@ -23,6 +23,10 @@ class GameManager {
     this.MAX_INPUT_RATE = 35; // Max inputs per second
     this.INPUT_RATE_WINDOW = 1000; // 1 second window
 
+    // Ghost player detection
+    this.lastInactiveCheck = Date.now();
+    this.inactiveCheckInterval = 5000; // Check every 5 seconds
+
     this.gameLoop();
   }
 
@@ -37,6 +41,9 @@ class GameManager {
       socket.emit("joinError", "Game is full");
       return;
     }
+
+    // Initialize player activity tracking
+    player.lastMovement = Date.now();
 
     // Join the game room
     socket.join("game");
@@ -370,6 +377,15 @@ class GameManager {
     const deltaTime = now - this.lastUpdate;
 
     if (deltaTime >= this.updateInterval) {
+      // Check for inactive players periodically (not every frame for performance)
+      if (now - this.lastInactiveCheck >= this.inactiveCheckInterval) {
+        this.removeInactivePlayers(now);
+        this.lastInactiveCheck = now;
+      }
+
+      // Ensure there's always a player who is "it"
+      this.gameState.ensureItPlayer();
+
       // Process all player inputs and calculate movements (server-authoritative)
       this.processPlayerMovements(deltaTime);
 
@@ -473,6 +489,63 @@ class GameManager {
 
     // Update player's last movement time for activity tracking
     player.lastMovement = Date.now();
+  }
+
+  // Remove inactive/ghost players who haven't sent input in a while
+  removeInactivePlayers(now) {
+    const INACTIVE_TIMEOUT = 30000; // 30 seconds of no input = ghost player
+    const playersToRemove = [];
+
+    for (const [playerId, player] of this.gameState.players) {
+      // Skip AI players - they're managed differently
+      if (player.isAI) continue;
+
+      // Check if player has been inactive for too long
+      const lastActivity = Math.max(
+        player.lastMovement || 0,
+        this.playerInputStates.get(playerId)?.lastUpdated || 0
+      );
+
+      const timeSinceActivity = now - lastActivity;
+
+      // Also check if we have any input state for non-AI players
+      const hasInputState = this.playerInputStates.has(playerId);
+
+      if (
+        timeSinceActivity > INACTIVE_TIMEOUT ||
+        (!hasInputState && timeSinceActivity > 5000)
+      ) {
+        console.log(
+          `Removing inactive player: ${
+            player.name
+          } (${playerId}) - inactive for ${Math.round(
+            timeSinceActivity / 1000
+          )}s, has input state: ${hasInputState}`
+        );
+        playersToRemove.push(playerId);
+      }
+    }
+
+    // Remove inactive players
+    let removedCount = 0;
+    for (const playerId of playersToRemove) {
+      const player = this.gameState.players.get(playerId);
+      if (player) {
+        this.gameState.removePlayer(playerId);
+
+        // Clean up input tracking
+        this.playerInputStates.delete(playerId);
+        delete this.inputTracking[playerId];
+
+        removedCount++;
+        console.log(`Inactive player ${player.name} (${playerId}) removed`);
+      }
+    }
+
+    // Broadcast game state if any players were removed
+    if (removedCount > 0) {
+      this.broadcastGameState();
+    }
   }
 }
 

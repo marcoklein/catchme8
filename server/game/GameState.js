@@ -139,6 +139,30 @@ class GameState {
     return true;
   }
 
+  // Ensure there's always exactly one "it" player
+  ensureItPlayer() {
+    if (this.players.size === 0) return;
+
+    const itPlayers = Array.from(this.players.values()).filter((p) => p.isIt);
+
+    if (itPlayers.length === 0) {
+      // No "it" player - assign one randomly
+      const playerIds = Array.from(this.players.keys());
+      const randomId = playerIds[Math.floor(Math.random() * playerIds.length)];
+      const newItPlayer = this.players.get(randomId);
+      newItPlayer.isIt = true;
+      console.log(
+        `Assigned new "it" player: ${newItPlayer.name} (${randomId})`
+      );
+    } else if (itPlayers.length > 1) {
+      // Multiple "it" players - keep only one
+      for (let i = 1; i < itPlayers.length; i++) {
+        itPlayers[i].isIt = false;
+      }
+      console.log(`Fixed multiple "it" players, kept: ${itPlayers[0].name}`);
+    }
+  }
+
   startGame() {
     this.gameActive = true;
     this.gameStartTime = Date.now();

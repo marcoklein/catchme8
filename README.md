@@ -9,5 +9,5 @@ npm run dev
 Production deployment
 
 ```sh
-git push dokku main
+npm run deploy
 ```
