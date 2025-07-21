@@ -53,6 +53,13 @@ class NetworkManager {
     }
   }
 
+  sendInputState(inputState) {
+    if (this.connected && this.playerId) {
+      this.socket.emit("playerInput", inputState);
+    }
+  }
+
+  // Keep sendMovement for backward compatibility during transition
   sendMovement(movement) {
     if (this.connected && this.playerId) {
       this.socket.emit("playerMove", movement);

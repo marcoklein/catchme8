@@ -28,9 +28,22 @@ io.on("connection", (socket) => {
     gameManager.handlePlayerJoin(socket, playerName);
   });
 
-  // Handle player movement
+  // Handle new input-based movement
+  socket.on("playerInput", (inputState) => {
+    try {
+      gameManager.handlePlayerInput(socket, inputState);
+    } catch (error) {
+      console.error(`Error handling player input for ${socket.id}:`, error);
+    }
+  });
+
+  // Legacy movement handling - keep for backward compatibility
   socket.on("playerMove", (movement) => {
-    gameManager.handlePlayerMove(socket, movement);
+    try {
+      gameManager.handlePlayerMove(socket, movement);
+    } catch (error) {
+      console.error(`Error handling player movement for ${socket.id}:`, error);
+    }
   });
 
   // Handle disconnection

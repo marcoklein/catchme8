@@ -206,6 +206,16 @@ class TouchInputManager {
     this.knobPosition.y = this.joystickCenter.y;
   }
 
+  getInputState() {
+    return {
+      dx: this.touchState.dx,
+      dy: this.touchState.dy,
+      isActive: this.touchState.isActive,
+      timestamp: Date.now(),
+    };
+  }
+
+  // Keep existing getMovement method for backward compatibility during transition
   getMovement() {
     return this.movement;
   }

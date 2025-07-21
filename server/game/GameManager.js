@@ -2,6 +2,7 @@ const GameState = require("./GameState");
 const Player = require("./Player");
 const AIPlayer = require("./AIPlayer");
 const AIBehavior = require("./AIBehavior");
+const MovementEngine = require("./MovementEngine");
 
 class GameManager {
   constructor(io) {
@@ -13,6 +14,15 @@ class GameManager {
     this.broadcastInterval = 1000 / 30; // Broadcast at 30 FPS
     this.aiUpdateInterval = 1000 / 10; // Update AI 10 times per second
     this.lastAIUpdate = Date.now();
+
+    // Server-authoritative input system
+    this.playerInputStates = new Map();
+    this.inputTracking = {};
+
+    // Rate limiting constants
+    this.MAX_INPUT_RATE = 35; // Max inputs per second
+    this.INPUT_RATE_WINDOW = 1000; // 1 second window
+
     this.gameLoop();
   }
 
@@ -80,10 +90,7 @@ class GameManager {
 
       // Check for excessive movement rate
       if (player.antiCheat.moveCount > 35) {
-        // Allow up to 35 moves per second
-        console.warn(
-          `Player ${player.name} (${socket.id}) sending too many movement updates: ${player.antiCheat.moveCount}/sec`
-        );
+        // Allow up to 35 moves per second - silently ignore excessive updates
         return;
       }
     }
@@ -111,10 +118,124 @@ class GameManager {
     }
   }
 
+  // New server-authoritative input handler
+  handlePlayerInput(socket, inputState) {
+    const player = this.gameState.players.get(socket.id);
+    if (!player) {
+      return;
+    }
+
+    // Rate limiting for input
+    const now = Date.now();
+    if (!this.inputTracking[socket.id]) {
+      this.inputTracking[socket.id] = {
+        lastInputTime: 0,
+        inputCount: 0,
+        windowStart: now,
+      };
+    }
+
+    const tracker = this.inputTracking[socket.id];
+
+    // Reset window if needed
+    if (now - tracker.windowStart > this.INPUT_RATE_WINDOW) {
+      tracker.inputCount = 0;
+      tracker.windowStart = now;
+    }
+
+    tracker.inputCount++;
+
+    if (tracker.inputCount > this.MAX_INPUT_RATE) {
+      // Silently ignore excessive input updates
+      return;
+    }
+
+    // Store input state for this player
+    this.playerInputStates.set(socket.id, {
+      ...inputState,
+      lastUpdated: now,
+    });
+  }
+
+  validateAndStoreInput(player, inputState) {
+    const now = Date.now();
+
+    // Anti-cheat: Input rate limiting
+    if (!player.inputTracking) {
+      player.inputTracking = {
+        lastInputTime: now,
+        inputCount: 0,
+        windowStart: now,
+      };
+    }
+
+    // Rate limiting validation
+    const timeSinceLastInput = now - player.inputTracking.lastInputTime;
+    if (timeSinceLastInput < 16) return; // Max 60 inputs/sec
+
+    // Track input count in sliding window (1 second)
+    if (now - player.inputTracking.windowStart > 1000) {
+      player.inputTracking.inputCount = 0;
+      player.inputTracking.windowStart = now;
+    }
+
+    player.inputTracking.inputCount++;
+    player.inputTracking.lastInputTime = now;
+
+    // Check for excessive input rate
+    if (player.inputTracking.inputCount > 35) {
+      console.warn(
+        `Player ${player.name} (${socket.id}) sending too many input updates: ${player.inputTracking.inputCount}/sec`
+      );
+      return;
+    }
+
+    // Validate input state values
+    if (this.validateInputState(inputState)) {
+      // Store validated input state
+      player.currentInput = {
+        ...inputState,
+        receivedAt: now,
+      };
+    }
+  }
+
+  validateInputState(inputState) {
+    // Validate boolean inputs
+    if (
+      typeof inputState.up !== "boolean" ||
+      typeof inputState.down !== "boolean" ||
+      typeof inputState.left !== "boolean" ||
+      typeof inputState.right !== "boolean" ||
+      typeof inputState.isTouchActive !== "boolean"
+    ) {
+      return false;
+    }
+
+    // Validate touch inputs (if active)
+    if (inputState.isTouchActive) {
+      if (
+        typeof inputState.touchX !== "number" ||
+        typeof inputState.touchY !== "number" ||
+        Math.abs(inputState.touchX) > 1.1 ||
+        Math.abs(inputState.touchY) > 1.1
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   handlePlayerDisconnect(socket) {
     const player = this.gameState.players.get(socket.id);
     if (player) {
       this.gameState.removePlayer(socket.id);
+
+      // Clean up input tracking
+      this.playerInputStates.delete(socket.id);
+      delete this.inputTracking[socket.id];
+
       this.broadcastGameState();
       console.log(`Player ${player.name} (${socket.id}) disconnected`);
     }
@@ -249,6 +370,9 @@ class GameManager {
     const deltaTime = now - this.lastUpdate;
 
     if (deltaTime >= this.updateInterval) {
+      // Process all player inputs and calculate movements (server-authoritative)
+      this.processPlayerMovements(deltaTime);
+
       // Update AI players
       this.updateAIPlayers();
 
@@ -281,6 +405,74 @@ class GameManager {
 
     // Continue the game loop
     setTimeout(() => this.gameLoop(), 16); // ~60 FPS
+  }
+
+  // Server-authoritative movement processing
+  processPlayerMovements(deltaTime) {
+    for (const [socketId, inputState] of this.playerInputStates.entries()) {
+      const player = this.gameState.players.get(socketId);
+      if (!player || !inputState) continue;
+
+      // Skip if input is too old (player might have disconnected)
+      const now = Date.now();
+      if (now - inputState.lastUpdated > 1000) {
+        continue;
+      }
+
+      // Set the current input for the player
+      player.currentInput = inputState;
+
+      // Calculate movement using the MovementEngine
+      const movement = MovementEngine.calculateMovement(player, deltaTime);
+
+      if (movement.dx !== 0 || movement.dy !== 0) {
+        // Update player position
+        const newPosition = {
+          x: player.x + movement.dx,
+          y: player.y + movement.dy,
+        };
+
+        // Validate position (bounds + obstacles)
+        const playerRadius = 15; // Standard player radius
+        const isInBounds =
+          newPosition.x >= playerRadius &&
+          newPosition.x <= this.gameState.gameWidth - playerRadius &&
+          newPosition.y >= playerRadius &&
+          newPosition.y <= this.gameState.gameHeight - playerRadius;
+
+        const hasNoCollision = !this.gameState.checkObstacleCollision(
+          newPosition.x,
+          newPosition.y,
+          playerRadius
+        );
+
+        if (isInBounds && hasNoCollision) {
+          player.x = newPosition.x;
+          player.y = newPosition.y;
+
+          // Check for game events (power-ups, collisions)
+          this.checkGameEvents(player);
+        }
+      }
+    }
+  }
+
+  checkGameEvents(player) {
+    // Check for power-up collection
+    const collectedPowerUp = this.gameState.checkPowerUpCollision(player);
+    if (collectedPowerUp) {
+      this.io.to("game").emit("powerUpCollected", {
+        playerId: player.id,
+        playerName: player.name,
+        powerUpType: collectedPowerUp.type,
+      });
+    }
+
+    // Check for collisions/tags
+    this.checkCollisions(player.id);
+
+    // Update player's last movement time for activity tracking
+    player.lastMovement = Date.now();
   }
 }
 

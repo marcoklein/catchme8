@@ -1,9 +1,18 @@
 class InputManager {
   constructor() {
     this.keys = {};
-    this.movement = { dx: 0, dy: 0 };
-    this.lastMovementSent = Date.now();
-    this.movementSendRate = 1000 / 30; // Send movement 30 times per second
+    this.inputState = {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+      touchX: 0,
+      touchY: 0,
+      isTouchActive: false,
+      timestamp: 0,
+    };
+    this.lastInputSent = Date.now();
+    this.inputSendRate = 1000 / 30; // Send input 30 times per second
     this.isMobile = this.detectMobile();
 
     // Initialize touch input for mobile devices
@@ -71,73 +80,64 @@ class InputManager {
   }
 
   update() {
-    let dx = 0;
-    let dy = 0;
+    // Collect current input state (no movement calculation)
+    const inputState = {
+      up: this.keys["KeyW"] || this.keys["ArrowUp"],
+      down: this.keys["KeyS"] || this.keys["ArrowDown"],
+      left: this.keys["KeyA"] || this.keys["ArrowLeft"],
+      right: this.keys["KeyD"] || this.keys["ArrowRight"],
+      touchX: 0,
+      touchY: 0,
+      isTouchActive: false,
+      timestamp: Date.now(),
+    };
 
-    // Check for touch input first (mobile)
+    // Add touch input state for mobile
     if (this.isMobile && this.touchInput) {
-      const touchMovement = this.touchInput.getMovement();
-      dx = touchMovement.dx;
-      dy = touchMovement.dy;
-
-      // Apply mobile speed adjustment - reduce touch sensitivity
-      const mobileSpeedMultiplier = 0.7; // Reduce mobile speed by 30%
-      dx *= mobileSpeedMultiplier;
-      dy *= mobileSpeedMultiplier;
-    } else {
-      // WASD controls (desktop)
-      if (this.keys["KeyW"] || this.keys["ArrowUp"]) {
-        dy = -1;
-      }
-      if (this.keys["KeyS"] || this.keys["ArrowDown"]) {
-        dy = 1;
-      }
-      if (this.keys["KeyA"] || this.keys["ArrowLeft"]) {
-        dx = -1;
-      }
-      if (this.keys["KeyD"] || this.keys["ArrowRight"]) {
-        dx = 1;
-      }
+      const touchInput = this.touchInput.getInputState();
+      inputState.touchX = touchInput.dx;
+      inputState.touchY = touchInput.dy;
+      inputState.isTouchActive = touchInput.isActive;
     }
 
-    // Always normalize movement to ensure consistent speed
-    const magnitude = Math.sqrt(dx * dx + dy * dy);
-    if (magnitude > 0) {
-      // Normalize to unit vector, then scale appropriately
-      dx = (dx / magnitude) * Math.min(magnitude, 1.0);
-      dy = (dy / magnitude) * Math.min(magnitude, 1.0);
-    }
+    // Send input state if changed or at regular intervals
+    this.sendInputState(inputState);
 
+    return inputState; // Return input state instead of movement
+  }
+
+  sendInputState(inputState) {
     const now = Date.now();
-    const shouldSend = now - this.lastMovementSent >= this.movementSendRate;
+    const hasChanged = this.hasInputChanged(inputState);
+    const shouldSend = now - this.lastInputSent >= this.inputSendRate;
 
-    // Send movement if it changed OR if enough time has passed (for continuous movement)
-    if (
-      dx !== this.movement.dx ||
-      dy !== this.movement.dy ||
-      (shouldSend && (dx !== 0 || dy !== 0))
-    ) {
-      // Store previous movement to detect stopping
-      const wasMoving = this.movement.dx !== 0 || this.movement.dy !== 0;
-      const isNowStopped = dx === 0 && dy === 0;
-
-      this.movement = { dx, dy };
-      network.sendMovement(this.movement);
-      this.lastMovementSent = now;
-
-      // If player just stopped, immediately send another stop signal for better sync
-      if (wasMoving && isNowStopped) {
-        setTimeout(() => {
-          network.sendMovement({ dx: 0, dy: 0 });
-        }, 16); // Send stop confirmation after one frame
-      }
+    if (hasChanged || shouldSend) {
+      network.sendInputState(inputState);
+      this.lastInputSent = now;
+      this.inputState = inputState;
     }
+  }
 
-    return this.movement;
+  hasInputChanged(newInputState) {
+    return (
+      newInputState.up !== this.inputState.up ||
+      newInputState.down !== this.inputState.down ||
+      newInputState.left !== this.inputState.left ||
+      newInputState.right !== this.inputState.right ||
+      Math.abs(newInputState.touchX - this.inputState.touchX) > 0.01 ||
+      Math.abs(newInputState.touchY - this.inputState.touchY) > 0.01 ||
+      newInputState.isTouchActive !== this.inputState.isTouchActive
+    );
   }
 
   isMoving() {
-    return this.movement.dx !== 0 || this.movement.dy !== 0;
+    return (
+      this.inputState.up ||
+      this.inputState.down ||
+      this.inputState.left ||
+      this.inputState.right ||
+      this.inputState.isTouchActive
+    );
   }
 }
 
