@@ -10,6 +10,22 @@ class Renderer {
     this.interpolationTime = 150; // 150ms interpolation buffer for smooth movement
     this.networkJitterBuffer = []; // Track network timing for adaptive interpolation
     this.maxJitterSamples = 10;
+    this.isMobile = this.detectMobile();
+
+    // Mobile-specific optimizations
+    if (this.isMobile) {
+      this.interpolationTime = 200; // Increased buffer for mobile networks
+      this.maxTrailLength = 3; // Reduced trail effects
+      this.enableLowPowerMode = true;
+    }
+  }
+
+  detectMobile() {
+    return (
+      /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      ) || window.innerWidth <= 768
+    );
   }
 
   setGameState(gameState) {
@@ -300,6 +316,11 @@ class Renderer {
 
     // Draw UI elements
     this.drawUI();
+
+    // Draw virtual joystick for mobile devices
+    if (this.isMobile && window.input && window.input.touchInput) {
+      window.input.touchInput.renderVirtualJoystick(this.ctx);
+    }
   }
 
   drawBackground() {
@@ -489,26 +510,29 @@ class Renderer {
         y: lastTrailPos.y,
         alpha: 1.0,
       });
-      // Keep trail length manageable
-      if (playerData.trail.length > 5) {
+      // Keep trail length manageable - shorter on mobile for performance
+      const maxTrailLength = this.isMobile ? this.maxTrailLength || 3 : 5;
+      if (playerData.trail.length > maxTrailLength) {
         playerData.trail.shift();
       }
     }
 
-    // Draw trail
-    playerData.trail.forEach((point, index) => {
-      point.alpha *= 0.85; // Fade trail
-      if (point.alpha > 0.1) {
-        this.ctx.beginPath();
-        this.ctx.arc(point.x, point.y, player.radius * 0.6, 0, Math.PI * 2);
-        this.ctx.fillStyle =
-          player.color +
-          Math.floor(point.alpha * 255)
-            .toString(16)
-            .padStart(2, "0");
-        this.ctx.fill();
-      }
-    });
+    // Draw trail - reduced complexity on mobile
+    if (!this.isMobile || !this.enableLowPowerMode) {
+      playerData.trail.forEach((point, index) => {
+        point.alpha *= 0.85; // Fade trail
+        if (point.alpha > 0.1) {
+          this.ctx.beginPath();
+          this.ctx.arc(point.x, point.y, player.radius * 0.6, 0, Math.PI * 2);
+          this.ctx.fillStyle =
+            player.color +
+            Math.floor(point.alpha * 255)
+              .toString(16)
+              .padStart(2, "0");
+          this.ctx.fill();
+        }
+      });
+    }
 
     // Remove faded trail points
     playerData.trail = playerData.trail.filter((point) => point.alpha > 0.1);

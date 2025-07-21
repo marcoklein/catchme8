@@ -26,6 +26,12 @@
           <p>Use WASD or Arrow Keys to move</p>
           <p>If you're "IT" (glowing), catch other players!</p>
         </div>
+
+        <!-- Mobile-specific control instructions -->
+        <div id="mobileControls">
+          <p>Touch and drag anywhere on the game area to move</p>
+          <p>If you're "IT" (glowing), catch other players!</p>
+        </div>
       </div>
 
       <div id="joinForm">
@@ -48,6 +54,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="js/touch-input.js"></script>
     <script src="js/network.js"></script>
     <script src="js/input.js"></script>
     <script src="js/renderer.js"></script>

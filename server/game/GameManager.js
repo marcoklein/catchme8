@@ -47,6 +47,47 @@ class GameManager {
     const now = Date.now();
     const deltaTime = Math.min(now - this.lastUpdate, 100); // Cap deltaTime to prevent large jumps
 
+    // Anti-cheat: Rate limiting for movement updates
+    const player = this.gameState.players.get(socket.id);
+    if (player) {
+      // Initialize anti-cheat tracking if not exists
+      if (!player.antiCheat) {
+        player.antiCheat = {
+          lastMoveTime: now,
+          moveCount: 0,
+          suspiciousMovements: 0,
+          windowStart: now,
+        };
+      }
+
+      // Rate limiting: Check movement frequency
+      const timeSinceLastMove = now - player.antiCheat.lastMoveTime;
+      const minMoveInterval = 1000 / 60; // Maximum 60 moves per second
+
+      if (timeSinceLastMove < minMoveInterval) {
+        // Too frequent movement - ignore this update
+        return;
+      }
+
+      // Track movement count in sliding window (1 second)
+      if (now - player.antiCheat.windowStart > 1000) {
+        player.antiCheat.moveCount = 0;
+        player.antiCheat.windowStart = now;
+      }
+
+      player.antiCheat.moveCount++;
+      player.antiCheat.lastMoveTime = now;
+
+      // Check for excessive movement rate
+      if (player.antiCheat.moveCount > 35) {
+        // Allow up to 35 moves per second
+        console.warn(
+          `Player ${player.name} (${socket.id}) sending too many movement updates: ${player.antiCheat.moveCount}/sec`
+        );
+        return;
+      }
+    }
+
     if (this.gameState.updatePlayer(socket.id, movement, deltaTime)) {
       const player = this.gameState.players.get(socket.id);
       if (player) {

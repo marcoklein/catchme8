@@ -190,14 +190,45 @@ class GameState {
     if (!player) return false;
 
     const { dx, dy } = movement;
-    player.move(
-      dx,
-      dy,
-      deltaTime,
-      this.gameWidth,
-      this.gameHeight,
-      this.obstacles
-    );
+
+    // Server-side movement validation to prevent cheating
+    const magnitude = Math.sqrt(dx * dx + dy * dy);
+    const maxAllowedSpeed = 1.1; // Allow slight tolerance for floating point precision
+
+    if (magnitude > maxAllowedSpeed) {
+      // Log suspicious movement for monitoring
+      console.warn(
+        `Player ${
+          player.name
+        } (${playerId}) attempted invalid movement: magnitude ${magnitude.toFixed(
+          3
+        )}`
+      );
+
+      // Normalize the movement to maximum allowed speed
+      const normalizedDx = magnitude > 0 ? dx / magnitude : 0;
+      const normalizedDy = magnitude > 0 ? dy / magnitude : 0;
+
+      player.move(
+        normalizedDx,
+        normalizedDy,
+        deltaTime,
+        this.gameWidth,
+        this.gameHeight,
+        this.obstacles
+      );
+    } else {
+      // Movement is within valid range
+      player.move(
+        dx,
+        dy,
+        deltaTime,
+        this.gameWidth,
+        this.gameHeight,
+        this.obstacles
+      );
+    }
+
     return true;
   }
 

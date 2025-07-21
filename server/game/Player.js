@@ -46,6 +46,10 @@ class Player {
       return;
     }
 
+    // Store previous position for anti-cheat validation
+    const prevX = this.x;
+    const prevY = this.y;
+
     // Store current velocity for prediction
     this.velocity = { dx, dy };
 
@@ -56,6 +60,25 @@ class Player {
     // Calculate new position
     let newX = this.x + dx * moveDistance;
     let newY = this.y + dy * moveDistance;
+
+    // Anti-cheat: Validate maximum movement distance
+    const actualMovement = Math.sqrt((newX - prevX) ** 2 + (newY - prevY) ** 2);
+    const maxAllowedMovement = moveDistance * 1.1; // Allow 10% tolerance
+
+    if (actualMovement > maxAllowedMovement) {
+      console.warn(
+        `Player ${this.name} (${
+          this.id
+        }) attempted excessive movement: ${actualMovement.toFixed(
+          2
+        )} > ${maxAllowedMovement.toFixed(2)}`
+      );
+
+      // Limit movement to maximum allowed distance
+      const angle = Math.atan2(newY - prevY, newX - prevX);
+      newX = prevX + Math.cos(angle) * maxAllowedMovement;
+      newY = prevY + Math.sin(angle) * maxAllowedMovement;
+    }
 
     // Keep player within bounds
     newX = Math.max(this.radius, Math.min(gameWidth - this.radius, newX));

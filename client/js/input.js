@@ -4,7 +4,22 @@ class InputManager {
     this.movement = { dx: 0, dy: 0 };
     this.lastMovementSent = Date.now();
     this.movementSendRate = 1000 / 30; // Send movement 30 times per second
+    this.isMobile = this.detectMobile();
+
+    // Initialize touch input for mobile devices
+    if (this.isMobile) {
+      this.touchInput = new TouchInputManager();
+    }
+
     this.setupEventListeners();
+  }
+
+  detectMobile() {
+    return (
+      /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      ) || window.innerWidth <= 768
+    );
   }
 
   setupEventListeners() {
@@ -59,24 +74,38 @@ class InputManager {
     let dx = 0;
     let dy = 0;
 
-    // WASD controls
-    if (this.keys["KeyW"] || this.keys["ArrowUp"]) {
-      dy = -1;
-    }
-    if (this.keys["KeyS"] || this.keys["ArrowDown"]) {
-      dy = 1;
-    }
-    if (this.keys["KeyA"] || this.keys["ArrowLeft"]) {
-      dx = -1;
-    }
-    if (this.keys["KeyD"] || this.keys["ArrowRight"]) {
-      dx = 1;
+    // Check for touch input first (mobile)
+    if (this.isMobile && this.touchInput) {
+      const touchMovement = this.touchInput.getMovement();
+      dx = touchMovement.dx;
+      dy = touchMovement.dy;
+
+      // Apply mobile speed adjustment - reduce touch sensitivity
+      const mobileSpeedMultiplier = 0.7; // Reduce mobile speed by 30%
+      dx *= mobileSpeedMultiplier;
+      dy *= mobileSpeedMultiplier;
+    } else {
+      // WASD controls (desktop)
+      if (this.keys["KeyW"] || this.keys["ArrowUp"]) {
+        dy = -1;
+      }
+      if (this.keys["KeyS"] || this.keys["ArrowDown"]) {
+        dy = 1;
+      }
+      if (this.keys["KeyA"] || this.keys["ArrowLeft"]) {
+        dx = -1;
+      }
+      if (this.keys["KeyD"] || this.keys["ArrowRight"]) {
+        dx = 1;
+      }
     }
 
-    // Normalize diagonal movement
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.707; // 1/sqrt(2)
-      dy *= 0.707;
+    // Always normalize movement to ensure consistent speed
+    const magnitude = Math.sqrt(dx * dx + dy * dy);
+    if (magnitude > 0) {
+      // Normalize to unit vector, then scale appropriately
+      dx = (dx / magnitude) * Math.min(magnitude, 1.0);
+      dy = (dy / magnitude) * Math.min(magnitude, 1.0);
     }
 
     const now = Date.now();
@@ -114,3 +143,6 @@ class InputManager {
 
 // Global input manager instance
 const input = new InputManager();
+
+// Make input accessible globally for renderer
+window.input = input;

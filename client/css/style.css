@@ -197,5 +197,58 @@ h1 {
     width: 100%;
     margin-bottom: 10px;
     margin-right: 0;
+    padding: 16px;
+    font-size: 18px;
+    min-height: 48px; /* iOS/Android recommended touch target */
   }
+
+  #joinButton {
+    padding: 16px 32px;
+    font-size: 18px;
+    min-height: 48px; /* iOS/Android recommended touch target */
+    width: 100%;
+  }
+
+  /* Hide desktop controls on mobile */
+  #controls {
+    display: none;
+  }
+
+  /* Show mobile controls */
+  #mobileControls {
+    display: block;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+}
+
+/* Mobile controls (hidden by default) */
+#mobileControls {
+  display: none;
+}
+
+/* Touch control overlay styles */
+.touch-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  width: 120px;
+  height: 120px;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.virtual-joystick {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.joystick-knob {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  transition: all 0.1s ease;
 }
