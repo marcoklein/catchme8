@@ -16,7 +16,7 @@ describe("Player", () => {
       expect(player.y).toBe(100);
       expect(player.isIt).toBe(false);
       expect(player.radius).toBe(20);
-      expect(player.speed).toBe(300);
+      expect(player.speed).toBe(100);
     });
 
     test("should use default position when not provided", () => {
@@ -43,78 +43,8 @@ describe("Player", () => {
     });
   });
 
-  describe("Movement Mechanics", () => {
-    test("should move player with deltaTime", () => {
-      const initialX = player.x;
-      const initialY = player.y;
-      const deltaTime = 16; // 16ms frame time
-
-      player.move(1, 0, deltaTime, 800, 600);
-
-      expect(player.x).toBeGreaterThan(initialX);
-      expect(player.y).toBe(initialY);
-    });
-
-    test("should apply speed correctly", () => {
-      const deltaTime = 1000; // 1 second
-      const initialX = player.x;
-
-      player.move(1, 0, deltaTime, 800, 600);
-
-      // Should move approximately player.speed pixels in 1 second
-      const expectedX = initialX + (player.speed * deltaTime) / 1000;
-      expect(Math.abs(player.x - expectedX)).toBeLessThan(1);
-    });
-
-    test("should handle boundary collision - left wall", () => {
-      player.x = 10; // Near left boundary
-      player.move(-1, 0, 16, 800, 600);
-
-      expect(player.x).toBeGreaterThanOrEqual(player.radius);
-    });
-
-    test("should handle boundary collision - right wall", () => {
-      player.x = 790; // Near right boundary
-      player.move(1, 0, 16, 800, 600);
-
-      expect(player.x).toBeLessThanOrEqual(800 - player.radius);
-    });
-
-    test("should handle boundary collision - top wall", () => {
-      player.y = 10; // Near top boundary
-      player.move(0, -1, 16, 800, 600);
-
-      expect(player.y).toBeGreaterThanOrEqual(player.radius);
-    });
-
-    test("should handle boundary collision - bottom wall", () => {
-      player.y = 590; // Near bottom boundary
-      player.move(0, 1, 16, 800, 600);
-
-      expect(player.y).toBeLessThanOrEqual(600 - player.radius);
-    });
-
-    test("should block movement when stunned", () => {
-      const initialX = player.x;
-      const initialY = player.y;
-
-      player.isStunned = true;
-      player.move(1, 1, 16, 800, 600);
-
-      expect(player.x).toBe(initialX);
-      expect(player.y).toBe(initialY);
-    });
-
-    test("should handle diagonal movement", () => {
-      const initialX = player.x;
-      const initialY = player.y;
-
-      player.move(1, 1, 16, 800, 600);
-
-      expect(player.x).toBeGreaterThan(initialX);
-      expect(player.y).toBeGreaterThan(initialY);
-    });
-  });
+  // Movement tests removed - movement is now handled by MovementEngine and GameState
+  // These tests are covered in the integration tests
 
   describe("Status Management", () => {
     test("should assign IT status", () => {

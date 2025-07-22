@@ -108,13 +108,26 @@ class InputManager {
 
   sendInputState(inputState) {
     const now = Date.now();
+    const hasChanged = this.hasInputChanged(inputState);
     const shouldSend = now - this.lastInputSent >= this.inputSendRate;
 
-    if (shouldSend) {
+    if (hasChanged || shouldSend) {
       network.sendInputState(inputState);
       this.lastInputSent = now;
       this.inputState = inputState;
     }
+  }
+
+  hasInputChanged(newInputState) {
+    return (
+      newInputState.up !== this.inputState.up ||
+      newInputState.down !== this.inputState.down ||
+      newInputState.left !== this.inputState.left ||
+      newInputState.right !== this.inputState.right ||
+      Math.abs(newInputState.touchX - this.inputState.touchX) > 0.01 ||
+      Math.abs(newInputState.touchY - this.inputState.touchY) > 0.01 ||
+      newInputState.isTouchActive !== this.inputState.isTouchActive
+    );
   }
 
   isMoving() {

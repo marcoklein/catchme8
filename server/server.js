@@ -37,13 +37,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Legacy movement handling - keep for backward compatibility
-  socket.on("playerMove", (movement) => {
-    try {
-      gameManager.handlePlayerMove(socket, movement);
-    } catch (error) {
-      console.error(`Error handling player movement for ${socket.id}:`, error);
-    }
+
+  // Handle ping for debug stats
+  socket.on("ping", (timestamp) => {
+    socket.emit("pong", timestamp);
   });
 
   // Handle disconnection

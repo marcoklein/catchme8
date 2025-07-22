@@ -118,77 +118,64 @@ describe("GameManager", () => {
     });
   });
 
-  describe("Movement Processing", () => {
-    test("should process player movement", () => {
+  describe("Server-Authoritative Movement Processing", () => {
+    test("should process player input and movement", () => {
       gameManager.handlePlayerJoin(mockSocket, "TestPlayer");
       const player = gameManager.gameState.players.get(mockSocket.id);
       const initialX = player.x;
 
-      // Set the GameManager's lastUpdate to an earlier time to ensure positive deltaTime
-      gameManager.lastUpdate = Date.now() - 50; // 50ms ago
-
-      // Pre-initialize anti-cheat to avoid rate limiting
-      const now = Date.now();
-      player.antiCheat = {
-        lastMoveTime: now - 100, // Set to 100ms ago
-        moveCount: 0,
-        suspiciousMovements: 0,
-        windowStart: now - 100,
+      // Send input state
+      const inputState = { 
+        up: false, 
+        down: false, 
+        left: false, 
+        right: true,
+        touchX: 0,
+        touchY: 0,
+        isTouchActive: false,
+        timestamp: Date.now()
       };
+      gameManager.handlePlayerInput(mockSocket, inputState);
 
-      const movement = { dx: 1, dy: 0 };
-      gameManager.handlePlayerMove(mockSocket, movement);
+      // Process movement in the game loop
+      gameManager.processPlayerMovements(16); // 16ms deltaTime
 
-      // Player should have moved
-      expect(player.x).not.toBe(initialX);
+      // Player should have moved to the right
+      expect(player.x).toBeGreaterThan(initialX);
     });
 
-    test("should enforce anti-cheat movement limits", () => {
-      gameManager.handlePlayerJoin(mockSocket, "TestPlayer");
-
-      // Send movements too rapidly
-      for (let i = 0; i < 100; i++) {
-        const movement = { dx: 1, dy: 0 };
-        gameManager.handlePlayerMove(mockSocket, movement);
-      }
-
-      // Should have anti-cheat tracking
-      const player = gameManager.gameState.players.get(mockSocket.id);
-      expect(player.antiCheat).toBeTruthy();
-    });
-
-    test("should update player activity on movement", () => {
+    test("should update player activity on input", () => {
       gameManager.handlePlayerJoin(mockSocket, "TestPlayer");
       const player = gameManager.gameState.players.get(mockSocket.id);
       const initialTime = player.lastMovement;
       const initialX = player.x;
 
-      // Set the GameManager's lastUpdate to an earlier time to ensure positive deltaTime
-      gameManager.lastUpdate = Date.now() - 50; // 50ms ago
+      // Wait a bit to ensure different timestamp
+      jest.advanceTimersByTime(10);
 
-      // Pre-initialize anti-cheat to avoid rate limiting
-      const baseTime = Date.now();
-      player.antiCheat = {
-        lastMoveTime: baseTime - 100, // Set to 100ms ago
-        moveCount: 0,
-        suspiciousMovements: 0,
-        windowStart: baseTime - 100,
+      // Send input state
+      const inputState = { 
+        up: false, 
+        down: false, 
+        left: false, 
+        right: true,
+        touchX: 0,
+        touchY: 0,
+        isTouchActive: false,
+        timestamp: Date.now()
       };
+      gameManager.handlePlayerInput(mockSocket, inputState);
+      gameManager.processPlayerMovements(16);
 
-      // Advance the Date.now mock to ensure different timestamp
-      const originalDateNow = Date.now;
-      Date.now = jest.fn(() => baseTime + 100); // 100ms later
-
-      const movement = { dx: 1, dy: 0 };
-      gameManager.handlePlayerMove(mockSocket, movement);
-
-      // Player should have moved and timestamp should be updated
-      expect(player.x).not.toBe(initialX);
+      // Player should have moved
+      expect(player.x).toBeGreaterThan(initialX);
+      
+      // The lastMovement is updated in checkGameEvents, which is called during processPlayerMovements
+      // Since we moved, the timestamp should be updated
       expect(player.lastMovement).toBeGreaterThan(initialTime);
-
-      // Restore original mock
-      Date.now = originalDateNow;
     });
+
+    // Legacy movement test removed - handlePlayerMove method no longer exists
   });
 
   describe("Collision Detection", () => {
@@ -310,18 +297,9 @@ describe("GameManager", () => {
   });
 
   describe("Power-up Collection", () => {
-    test("should handle power-up collection", () => {
+    test("should handle power-up collection via new input system", () => {
       gameManager.handlePlayerJoin(mockSocket, "TestPlayer");
       const player = gameManager.gameState.players.get(mockSocket.id);
-
-      // Pre-initialize anti-cheat to avoid rate limiting
-      const now = Date.now();
-      player.antiCheat = {
-        lastMoveTime: now - 100, // Set to 100ms ago
-        moveCount: 0,
-        suspiciousMovements: 0,
-        windowStart: now - 100,
-      };
 
       // Mock power-up collision with a properly structured power-up
       const mockPowerUp = {
@@ -337,8 +315,19 @@ describe("GameManager", () => {
       const originalCheck = gameManager.gameState.checkPowerUpCollision;
       gameManager.gameState.checkPowerUpCollision = jest.fn(() => mockPowerUp);
 
-      const movement = { dx: 1, dy: 0 };
-      gameManager.handlePlayerMove(mockSocket, movement);
+      // Send input to cause movement and power-up check
+      const inputState = { 
+        up: false, 
+        down: false, 
+        left: false, 
+        right: true,
+        touchX: 0,
+        touchY: 0,
+        isTouchActive: false,
+        timestamp: Date.now()
+      };
+      gameManager.handlePlayerInput(mockSocket, inputState);
+      gameManager.processPlayerMovements(16);
 
       const powerUpEvent = mockIO.emitted.find(
         (e) => e.event === "powerUpCollected"

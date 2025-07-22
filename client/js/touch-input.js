@@ -178,24 +178,30 @@ class TouchInputManager {
 
     this.touchState.isActive = false;
 
-    // Gradually stop movement instead of abrupt stop
+    // Gradually stop movement instead of abrupt stop - with safety timeout
+    let stopFrameCount = 0;
+    const maxStopFrames = 30; // Safety limit to prevent infinite loops
+    
     const stopMovement = () => {
       this.touchState.dx *= 0.7; // Smooth deceleration
       this.touchState.dy *= 0.7;
+      stopFrameCount++;
 
       if (
-        Math.abs(this.touchState.dx) < 0.05 &&
-        Math.abs(this.touchState.dy) < 0.05
+        (Math.abs(this.touchState.dx) >= 0.05 || Math.abs(this.touchState.dy) >= 0.05) &&
+        stopFrameCount < maxStopFrames
       ) {
-        this.touchState.dx = 0;
-        this.touchState.dy = 0;
-        this.movement = { dx: 0, dy: 0 };
-      } else {
         this.movement = {
           dx: this.touchState.dx,
           dy: this.touchState.dy,
         };
         requestAnimationFrame(stopMovement);
+      } else {
+        // Force stop if we hit the safety limit or movement is small enough
+        this.touchState.dx = 0;
+        this.touchState.dy = 0;
+        this.movement = { dx: 0, dy: 0 };
+        console.log(`Touch deceleration complete after ${stopFrameCount} frames`);
       }
     };
 

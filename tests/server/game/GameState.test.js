@@ -179,9 +179,9 @@ describe("GameState", () => {
       const player = createTestPlayer("player1", "Alice", 50, 50);
       gameState.addPlayer(player);
 
-      // Mock obstacle collision on the player
-      const originalCheckCollision = player.checkObstacleCollision;
-      player.checkObstacleCollision = jest.fn(() => true);
+      // Mock obstacle collision in gameState
+      const originalCheckCollision = gameState.checkObstacleCollision;
+      gameState.checkObstacleCollision = jest.fn(() => true);
 
       const result = gameState.updatePlayer("player1", { dx: 1, dy: 0 }, 16);
 
@@ -191,7 +191,7 @@ describe("GameState", () => {
       expect(player.y).toBe(50);
 
       // Restore original method
-      player.checkObstacleCollision = originalCheckCollision;
+      gameState.checkObstacleCollision = originalCheckCollision;
     });
   });
 

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Panel Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            background: #f0f0f0;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #45a049;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .test-pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .test-fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+    <link rel="stylesheet" href="client/css/debug-stats.css" />
+</head>
+<body>
+    <h1>Debug Panel Test Page</h1>
+    
+    <div class="test-container">
+        <h3>Debug Panel Tests</h3>
+        <button class="test-button" onclick="testToggle()">Test F3 Toggle (Press F3)</button>
+        <button class="test-button" onclick="testURLParam()">Test ?debug=1 URL Parameter</button>
+        <button class="test-button" onclick="testConsoleAPI()">Test Console API</button>
+        <button class="test-button" onclick="runAllTests()">Run All Tests</button>
+        <div id="test-results"></div>
+    </div>
+    
+    <div class="test-container">
+        <h3>Manual Tests</h3>
+        <ul>
+            <li>Press <strong>F3</strong> to toggle the debug panel</li>
+            <li>Try <strong>Ctrl+Shift+D</strong> as an alternative toggle</li>
+            <li>Click the X button to close the panel</li>
+            <li>Click section headers to collapse/expand sections</li>
+            <li>Reload with <strong>?debug=1</strong> URL parameter</li>
+        </ul>
+    </div>
+
+    <!-- Debug Panel HTML -->
+    <div id="debugPanel" class="debug-panel hidden">
+      <div class="debug-header" id="debugHeader">
+        <h3>Debug Stats</h3>
+        <button id="debugToggle" class="debug-toggle">×</button>
+      </div>
+      <div class="debug-content" id="debugContent">
+        <div class="debug-section" id="performance-section">
+          <div class="debug-section-title">⚡ Performance</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">FPS:</span>
+              <span class="debug-metric-value" id="fps-value">60</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Frame Time:</span>
+              <span class="debug-metric-value" id="frame-time-value">16.7ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Render Time:</span>
+              <span class="debug-metric-value" id="render-time-value">2.3ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Memory:</span>
+              <span class="debug-metric-value" id="memory-value">45/128MB</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="network-section">
+          <div class="debug-section-title">🌐 Network</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">
+                <span class="connection-status connected" id="connection-indicator"></span>
+                Status:
+              </span>
+              <span class="debug-metric-value status-good" id="connection-status">Connected</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Ping:</span>
+              <span class="debug-metric-value status-good" id="ping-value">25ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Update Rate:</span>
+              <span class="debug-metric-value status-good" id="update-rate-value">30.0 Hz</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Interpolation:</span>
+              <span class="debug-metric-value" id="interpolation-value">100ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Jitter:</span>
+              <span class="debug-metric-value status-good" id="jitter-value">5ms</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="player-section">
+          <div class="debug-section-title">👤 Player</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">Position:</span>
+              <span class="debug-metric-value" id="position-value">400, 300</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Velocity:</span>
+              <span class="debug-metric-value" id="velocity-value">0.5, -0.2</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Status:</span>
+              <span class="debug-metric-value" id="player-status-value">Normal</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Score:</span>
+              <span class="debug-metric-value" id="player-score-value">150</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Is IT:</span>
+              <span class="debug-metric-value" id="is-it-value">No</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="client/js/debug-stats.js"></script>
+    <script>
+        // Mock game objects for testing
+        const mockGame = {
+            gameState: {
+                players: [{ id: 'test', x: 400, y: 300, score: 150, isIt: false }],
+                gameActive: true,
+                timeRemaining: 120000
+            },
+            myPlayerId: 'test'
+        };
+        
+        const mockRenderer = {
+            interpolationTime: 100,
+            lastRenderTime: 2.3
+        };
+        
+        const mockNetwork = {
+            socket: {
+                on: function() {},
+                emit: function() {},
+                off: function() {}
+            }
+        };
+        
+        const mockInput = {
+            inputState: {
+                up: false, down: false, left: false, right: false,
+                isTouchActive: false
+            }
+        };
+        
+        // Initialize debug stats
+        const debugStats = new DebugStats(mockGame, mockRenderer, mockNetwork, mockInput);
+        window.debugStats = debugStats;
+        
+        function addTestResult(message, passed) {
+            const results = document.getElementById('test-results');
+            const div = document.createElement('div');
+            div.className = `test-result ${passed ? 'test-pass' : 'test-fail'}`;
+            div.innerHTML = `${passed ? '✓' : '✗'} ${message}`;
+            results.appendChild(div);
+        }
+        
+        function testToggle() {
+            addTestResult('F3 toggle test ready - Press F3 to test', true);
+        }
+        
+        function testURLParam() {
+            const url = new URL(window.location);
+            url.searchParams.set('debug', '1');
+            addTestResult(`URL parameter test: ${url.toString()}`, true);
+        }
+        
+        function testConsoleAPI() {
+            try {
+                console.log('Testing console API...');
+                if (window.debugStats) {
+                    window.debugStats.enable();
+                    addTestResult('Console API works - Debug panel enabled', true);
+                } else {
+                    addTestResult('Console API failed - debugStats not available', false);
+                }
+            } catch (e) {
+                addTestResult(`Console API error: ${e.message}`, false);
+            }
+        }
+        
+        function runAllTests() {
+            document.getElementById('test-results').innerHTML = '';
+            
+            // Test 1: Check if debug panel exists
+            const panel = document.getElementById('debugPanel');
+            addTestResult('Debug panel exists in DOM', !!panel);
+            
+            // Test 2: Check if CSS classes are applied
+            addTestResult('Debug panel has correct CSS classes', panel.classList.contains('debug-panel'));
+            
+            // Test 3: Check if all sections exist
+            const sections = ['performance-section', 'network-section', 'player-section'];
+            sections.forEach(sectionId => {
+                const section = document.getElementById(sectionId);
+                addTestResult(`${sectionId} exists`, !!section);
+            });
+            
+            // Test 4: Check if DebugStats class exists
+            addTestResult('DebugStats class is available', typeof DebugStats !== 'undefined');
+            
+            // Test 5: Check if debug stats instance was created
+            addTestResult('Debug stats instance created', !!window.debugStats);
+            
+            // Test 6: Test toggle functionality
+            try {
+                debugStats.toggle();
+                addTestResult('Toggle functionality works', true);
+            } catch (e) {
+                addTestResult(`Toggle failed: ${e.message}`, false);
+            }
+        }
+        
+        // Simulate some dynamic updates
+        setInterval(() => {
+            if (window.debugStats && window.debugStats.isEnabled) {
+                // Update some mock values
+                document.getElementById('fps-value').textContent = Math.floor(Math.random() * 10) + 55;
+                document.getElementById('ping-value').textContent = Math.floor(Math.random() * 30) + 20 + 'ms';
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

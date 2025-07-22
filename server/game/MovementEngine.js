@@ -2,6 +2,11 @@ class MovementEngine {
   static calculateMovement(player, deltaTime) {
     if (!player.currentInput) return { dx: 0, dy: 0 };
 
+    // Check if player is stunned - return zero movement if so
+    if (player.isStunned) {
+      return { dx: 0, dy: 0 };
+    }
+
     const input = player.currentInput;
     let dx = 0,
       dy = 0;
@@ -16,6 +21,11 @@ class MovementEngine {
     if (input.isTouchActive) {
       dx = input.touchX || 0;
       dy = input.touchY || 0;
+    }
+
+    // Return zero movement if no input is active
+    if (dx === 0 && dy === 0 && !input.isTouchActive) {
+      return { dx: 0, dy: 0 };
     }
 
     // Apply server-side movement rules
@@ -112,7 +122,8 @@ class MovementEngine {
 
   static attemptPartialMovement(player, dx, dy, gameState) {
     const stepSize = 0.1;
-    const steps = Math.max(Math.abs(dx), Math.abs(dy)) / stepSize;
+    const maxMovement = Math.max(Math.abs(dx), Math.abs(dy));
+    const steps = Math.max(1, Math.ceil(maxMovement / stepSize));
 
     const stepX = dx / steps;
     const stepY = dy / steps;

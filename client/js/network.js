@@ -39,6 +39,10 @@ class NetworkManager {
       game.onStarCollected(data);
     });
 
+    this.socket.on("powerUpCollected", (data) => {
+      game.onPowerUpCollected(data);
+    });
+
     this.socket.on("stunOrbCollected", (data) => {
       if (data.onlyForIt) {
         this.showMessage(
@@ -89,12 +93,8 @@ class NetworkManager {
     }
   }
 
-  // Keep sendMovement for backward compatibility during transition
-  sendMovement(movement) {
-    if (this.connected && this.playerId) {
-      this.socket.emit("playerMove", movement);
-    }
-  }
+  // Legacy sendMovement method - REMOVED
+  // All movement is now handled via sendInputState method
 
   showMessage(text, type = "info") {
     const messagesContainer = document.getElementById("gameMessages");

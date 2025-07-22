@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CatchMe - Multiplayer Catch Game</title>
     <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/debug-stats.css" />
   </head>
   <body>
     <div id="container">
@@ -59,11 +60,174 @@
       <div id="gameMessages"></div>
     </div>
 
+    <!-- Debug Stats Panel -->
+    <div id="debugPanel" class="debug-panel hidden">
+      <div class="debug-header" id="debugHeader">
+        <h3>Debug Stats</h3>
+        <button id="debugToggle" class="debug-toggle">×</button>
+      </div>
+      <div class="debug-content" id="debugContent">
+        <div class="debug-section" id="performance-section">
+          <div class="debug-section-title">⚡ Performance</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">FPS:</span>
+              <span class="debug-metric-value" id="fps-value">0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Frame Time:</span>
+              <span class="debug-metric-value" id="frame-time-value">0ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Render Time:</span>
+              <span class="debug-metric-value" id="render-time-value">0ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Memory:</span>
+              <span class="debug-metric-value" id="memory-value">N/A</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="network-section">
+          <div class="debug-section-title">🌐 Network</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">
+                <span class="connection-status connected" id="connection-indicator"></span>
+                Status:
+              </span>
+              <span class="debug-metric-value" id="connection-status">Connected</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Ping:</span>
+              <span class="debug-metric-value" id="ping-value">0ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Update Rate:</span>
+              <span class="debug-metric-value" id="update-rate-value">0 Hz</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Interpolation:</span>
+              <span class="debug-metric-value" id="interpolation-value">100ms</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Jitter:</span>
+              <span class="debug-metric-value" id="jitter-value">0ms</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="player-section">
+          <div class="debug-section-title">👤 Player</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">Position:</span>
+              <span class="debug-metric-value" id="position-value">0, 0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Velocity:</span>
+              <span class="debug-metric-value" id="velocity-value">0, 0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Status:</span>
+              <span class="debug-metric-value" id="player-status-value">Normal</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Score:</span>
+              <span class="debug-metric-value" id="player-score-value">0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Is IT:</span>
+              <span class="debug-metric-value" id="is-it-value">No</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="gamestate-section">
+          <div class="debug-section-title">🎮 Game State</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">Players:</span>
+              <span class="debug-metric-value" id="total-players-value">0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">AI Players:</span>
+              <span class="debug-metric-value" id="ai-players-value">0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Game Active:</span>
+              <span class="debug-metric-value" id="game-active-value">No</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Time Left:</span>
+              <span class="debug-metric-value" id="time-left-value">--</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Power-ups:</span>
+              <span class="debug-metric-value" id="powerups-value">0/0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Stars:</span>
+              <span class="debug-metric-value" id="stars-value">0/0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="input-section">
+          <div class="debug-section-title">⌨️ Input</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">Input Rate:</span>
+              <span class="debug-metric-value" id="input-rate-value">0/s</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Current Input:</span>
+              <span class="debug-metric-value" id="current-input-value">None</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Touch Active:</span>
+              <span class="debug-metric-value" id="touch-active-value">No</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Validation Rate:</span>
+              <span class="debug-metric-value" id="validation-rate-value">100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="debug-section" id="server-section">
+          <div class="debug-section-title">🖥️ Server</div>
+          <div class="debug-section-content">
+            <div class="debug-metric">
+              <span class="debug-metric-label">Loop Performance:</span>
+              <span class="debug-metric-value" id="server-performance-value">Good</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Events/sec:</span>
+              <span class="debug-metric-value" id="events-per-sec-value">0</span>
+            </div>
+            <div class="debug-metric">
+              <span class="debug-metric-label">Physics Updates:</span>
+              <span class="debug-metric-value" id="physics-updates-value">30/s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debug Toggle Hint -->
+    <div id="debugHint" class="debug-hint hidden">
+      Press F3 to toggle debug stats
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/touch-input.js"></script>
+    <script src="js/movement-engine.js"></script>
     <script src="js/network.js"></script>
     <script src="js/input.js"></script>
     <script src="js/renderer.js"></script>
+    <script src="js/debug-stats.js"></script>
     <script src="js/game.js"></script>
   </body>
 </html>
