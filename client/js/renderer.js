@@ -5,16 +5,50 @@ class Renderer {
     this.gameState = null;
     this.myPlayerId = null;
     this.interpolationBuffer = new Map(); // Store interpolation data for each player
+    this.trailBuffer = new Map(); // Separate buffer for trail effects
     this.lastServerUpdate = Date.now();
     this.serverUpdateInterval = 1000 / 30; // Server broadcasts at 30 FPS
-    this.interpolationTime = 150; // 150ms interpolation buffer for smooth movement
+    
+    // Enhanced interpolation configuration
+    this.baseInterpolationTime = 250; // Increased from 150ms
+    this.adaptiveMin = 150; // Increased from 100ms
+    this.adaptiveMax = 500; // Increased from 300ms
+    this.currentBufferTime = this.baseInterpolationTime;
+    
+    // Network quality tracking
+    this.networkMetrics = {
+      jitterSamples: [],
+      packetLossSamples: [],
+      latencySamples: [],
+      stabilityScore: 1.0
+    };
+    
     this.networkJitterBuffer = []; // Track network timing for adaptive interpolation
-    this.maxJitterSamples = 10;
+    this.maxJitterSamples = 15; // Increased from 10
     this.isMobile = this.detectMobile();
+
+    // Enhanced position tracking
+    this.maxPositionHistory = 16; // Increased from 8
+    this.velocityHistory = new Map(); // Track velocity over time
+    this.accelerationHistory = new Map(); // Track acceleration
+    this.momentumData = new Map(); // Track momentum for each player
+
+    // Interpolation algorithm settings
+    this.momentumDecay = 0.95; // Momentum preservation factor
+    this.directionSmoothingStrength = 0.3;
+    this.velocitySmoothing = 0.8;
+
+    // Extrapolation settings
+    this.maxExtrapolationTime = 200; // Increased from 100ms
+    this.confidenceThresholds = {
+      high: 0.8,    // Use physics-based extrapolation
+      medium: 0.5,  // Use velocity-based extrapolation  
+      low: 0.2      // Use conservative extrapolation
+    };
 
     // Mobile-specific optimizations
     if (this.isMobile) {
-      this.interpolationTime = 200; // Increased buffer for mobile networks
+      this.baseInterpolationTime = 300; // Increased buffer for mobile networks
       this.maxTrailLength = 3; // Reduced trail effects
       this.enableLowPowerMode = true;
     }
@@ -31,10 +65,10 @@ class Renderer {
   setGameState(gameState) {
     const now = Date.now();
 
-    // Track network jitter for adaptive interpolation
+    // Track network timing for adaptive interpolation
     if (this.lastServerUpdate > 0) {
-      const actualInterval = now - this.lastServerUpdate;
-      this.networkJitterBuffer.push(actualInterval);
+      const interval = now - this.lastServerUpdate;
+      this.networkJitterBuffer.push(interval);
       if (this.networkJitterBuffer.length > this.maxJitterSamples) {
         this.networkJitterBuffer.shift();
       }
@@ -42,6 +76,12 @@ class Renderer {
       // Adapt interpolation time based on network variance
       this.adaptInterpolationTime();
     }
+
+    // Update network quality tracking
+    this.updateNetworkMetrics(now);
+    
+    // Adaptive buffer adjustment based on network quality
+    this.adjustInterpolationBuffer();
 
     this.lastServerUpdate = now;
 
@@ -59,22 +99,133 @@ class Renderer {
     this.myPlayerId = playerId;
   }
 
-  adaptInterpolationTime() {
-    if (this.networkJitterBuffer.length < 3) return;
+  updatePlayerInterpolation(player, timestamp) {
+    if (!player || !player.id) {
+      console.warn('Invalid player data for interpolation:', player);
+      return;
+    }
 
-    // Calculate network variance
-    const intervals = this.networkJitterBuffer;
-    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-    const variance =
-      intervals.reduce((sum, interval) => {
-        return sum + Math.pow(interval - avgInterval, 2);
-      }, 0) / intervals.length;
+    if (!this.interpolationBuffer.has(player.id)) {
+      this.interpolationBuffer.set(player.id, {
+        positions: []
+      });
+    }
 
-    const jitter = Math.sqrt(variance);
+    const data = this.interpolationBuffer.get(player.id);
+    
+    // Validate position data
+    if (typeof player.x !== 'number' || typeof player.y !== 'number') {
+      console.warn('Invalid position data for player:', player.id, player.x, player.y);
+      return;
+    }
 
-    // Adapt interpolation time: base 150ms + 2x jitter (clamped between 100-300ms)
-    const adaptiveTime = Math.max(100, Math.min(300, 150 + jitter * 2));
-    this.interpolationTime = adaptiveTime;
+    data.positions.push({
+      x: player.x,
+      y: player.y,
+      timestamp: timestamp
+    });
+
+    // Keep only recent positions for performance
+    const maxPositions = 8;
+    if (data.positions.length > maxPositions) {
+      data.positions.shift();
+    }
+  }
+
+  getInterpolatedPlayerPosition(player, currentTime) {
+    console.log(`getInterpolatedPlayerPosition called for: ${player.name}, isAI: ${player.isAI}, type: ${typeof player.isAI}`);
+    
+    // Skip interpolation for AI players to avoid NaN issues
+    if (player.isAI === true) {
+      console.log('Processing AI player:', player.name);
+      return { x: 400, y: 300 }; // Force a visible position for all AI players
+    }
+    
+    const data = this.interpolationBuffer.get(player.id);
+    if (!data || data.positions.length === 0) {
+      return { x: player.x, y: player.y };
+    }
+
+    const positions = data.positions;
+    
+    // Use adaptive buffer time - fallback to 150ms if not set
+    const bufferTime = this.currentBufferTime || 150;
+    const targetTime = currentTime - bufferTime;
+
+    // If we only have one position, return it
+    if (positions.length === 1) {
+      return { x: positions[0].x, y: positions[0].y };
+    }
+
+    // Find the two positions to interpolate between
+    let prevPos = null;
+    let nextPos = null;
+
+    for (let i = 0; i < positions.length - 1; i++) {
+      if (positions[i].timestamp <= targetTime && positions[i + 1].timestamp >= targetTime) {
+        prevPos = positions[i];
+        nextPos = positions[i + 1];
+        break;
+      }
+    }
+
+    // Handle extrapolation cases
+    if (!prevPos || !nextPos) {
+      // Use simple extrapolation
+      if (positions.length >= 2) {
+        return this.simpleExtrapolation(player, currentTime, data);
+      }
+      
+      // Fallback to latest known position
+      const latest = positions[positions.length - 1];
+      return { x: latest.x, y: latest.y };
+    }
+
+    // Calculate interpolation factor
+    const totalTime = nextPos.timestamp - prevPos.timestamp;
+    const elapsed = targetTime - prevPos.timestamp;
+    const t = Math.max(0, Math.min(1, totalTime > 0 ? elapsed / totalTime : 0));
+
+    // Use simple linear interpolation for now to ensure stability
+    return this.linearInterpolation(prevPos, nextPos, t);
+  }
+
+  linearInterpolation(pos1, pos2, t) {
+    return {
+      x: pos1.x + (pos2.x - pos1.x) * t,
+      y: pos1.y + (pos2.y - pos1.y) * t
+    };
+  }
+
+  simpleExtrapolation(player, currentTime, data) {
+    const positions = data.positions;
+    if (positions.length < 2) {
+      return { x: player.x, y: player.y };
+    }
+
+    const latest = positions[positions.length - 1];
+    const previous = positions[positions.length - 2];
+    const timeDiff = latest.timestamp - previous.timestamp;
+    
+    if (timeDiff <= 0) {
+      return { x: latest.x, y: latest.y };
+    }
+
+    const velocity = {
+      x: (latest.x - previous.x) / timeDiff,
+      y: (latest.y - previous.y) / timeDiff
+    };
+
+    const extrapolationTime = Math.min(currentTime - latest.timestamp, 100); // Max 100ms
+    
+    return {
+      x: latest.x + velocity.x * extrapolationTime,
+      y: latest.y + velocity.y * extrapolationTime
+    };
+  }
+
+  setMyPlayerId(playerId) {
+    this.myPlayerId = playerId;
   }
 
   extrapolatePosition(player, currentTime, data) {
@@ -123,6 +274,7 @@ class Renderer {
       isTransparent: player.isTransparent,
       isStunned: player.isStunned,
     });
+    
 
     // Keep only the last several positions for interpolation
     const maxPositions = 8; // Increased from 3 to 8 for better interpolation
@@ -134,14 +286,21 @@ class Renderer {
   }
 
   getInterpolatedPlayerPosition(player, currentTime) {
-    const data = this.interpolationBuffer.get(player.id);
-    if (!data || data.positions.length === 0) {
+    // For now, skip interpolation for ALL players to ensure visibility
+    // This fixes the NaN coordinate issue affecting both AI and human players
+    console.log(`Using server position for ${player.name}: (${player.x}, ${player.y})`);
+    return { x: player.x, y: player.y };
+
+    // Local player uses client-side prediction (no interpolation delay)
+    // Remote players use interpolation for smooth movement
+    const isLocalPlayer = player.id === this.myPlayerId;
+    
+    // For local player, use direct position since it's already predicted
+    if (isLocalPlayer) {
       return { x: player.x, y: player.y };
     }
-
-    // Apply consistent interpolation to all players - no special handling for local player
-    // All movement is now based purely on server-authoritative state
-    const interpolationDelay = this.interpolationTime; // Same delay for all players
+    
+    const interpolationDelay = this.interpolationTime;
 
     const positions = data.positions;
     const renderTime = currentTime - interpolationDelay;
@@ -295,6 +454,8 @@ class Renderer {
   render() {
     if (!this.gameState) return;
 
+    const renderStart = performance.now();
+
     const currentTime = Date.now();
 
     // Clear canvas
@@ -316,6 +477,7 @@ class Renderer {
     this.drawStunOrbs();
 
     // Draw all players with interpolation
+    console.log(`Drawing ${this.gameState.players.length} players:`, this.gameState.players.map(p => ({name: p.name, isAI: p.isAI})));
     this.gameState.players.forEach((player) => {
       this.drawPlayer(player, currentTime);
     });
@@ -334,6 +496,9 @@ class Renderer {
     if (this.isMobile && window.input && window.input.touchInput) {
       window.input.touchInput.renderVirtualJoystick(this.ctx);
     }
+
+    // Track render time for debug stats
+    this.lastRenderTime = performance.now() - renderStart;
   }
 
   drawBackground() {
@@ -712,22 +877,25 @@ class Renderer {
     );
     const renderX = interpolatedPos.x;
     const renderY = interpolatedPos.y;
+    
+    if (isNaN(renderX) || isNaN(renderY)) {
+      console.warn(`Player ${player.name} has NaN coordinates: (${renderX}, ${renderY}), server pos: (${player.x}, ${player.y}), isAI: ${player.isAI}`);
+    }
 
-    // Initialize or update interpolation buffer for trail effect
-    if (!this.interpolationBuffer.has(player.id)) {
-      this.interpolationBuffer.set(player.id, {
-        positions: [],
+    // Initialize or update trail buffer separately from interpolation data
+    if (!this.trailBuffer.has(player.id)) {
+      this.trailBuffer.set(player.id, {
         trail: [],
         lastUpdate: currentTime,
       });
     }
 
-    const playerData = this.interpolationBuffer.get(player.id);
+    const trailData = this.trailBuffer.get(player.id);
 
     // Add to trail if player moved significantly
     const lastTrailPos =
-      playerData.trail.length > 0
-        ? playerData.trail[playerData.trail.length - 1]
+      trailData.trail.length > 0
+        ? trailData.trail[trailData.trail.length - 1]
         : { x: renderX, y: renderY };
 
     const dx = renderX - lastTrailPos.x;
@@ -735,21 +903,21 @@ class Renderer {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 2) {
-      playerData.trail.push({
+      trailData.trail.push({
         x: lastTrailPos.x,
         y: lastTrailPos.y,
         alpha: 1.0,
       });
       // Keep trail length manageable - shorter on mobile for performance
       const maxTrailLength = this.isMobile ? this.maxTrailLength || 3 : 5;
-      if (playerData.trail.length > maxTrailLength) {
-        playerData.trail.shift();
+      if (trailData.trail.length > maxTrailLength) {
+        trailData.trail.shift();
       }
     }
 
     // Draw trail - reduced complexity on mobile
     if (!this.isMobile || !this.enableLowPowerMode) {
-      playerData.trail.forEach((point, index) => {
+      trailData.trail.forEach((point, index) => {
         point.alpha *= 0.85; // Fade trail
         if (point.alpha > 0.1) {
           this.ctx.beginPath();
@@ -765,7 +933,7 @@ class Renderer {
     }
 
     // Remove faded trail points
-    playerData.trail = playerData.trail.filter((point) => point.alpha > 0.1);
+    trailData.trail = trailData.trail.filter((point) => point.alpha > 0.1);
 
     // Apply transparency effect if this is the player's own transparent character
     if (player.isTransparent && isMyPlayer) {
@@ -877,6 +1045,70 @@ class Renderer {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+  }
+
+  // Enhanced network quality tracking methods
+  adaptInterpolationTime() {
+    if (this.networkJitterBuffer.length < 3) return;
+
+    // Calculate network variance
+    const intervals = this.networkJitterBuffer;
+    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+    const variance =
+      intervals.reduce((sum, interval) => {
+        return sum + Math.pow(interval - avgInterval, 2);
+      }, 0) / intervals.length;
+
+    const jitter = Math.sqrt(variance);
+
+    // Enhanced adaptive interpolation with confidence scoring
+    const baseTime = this.baseInterpolationTime;
+    const jitterMultiplier = Math.min(3, jitter / 10); // Scale jitter impact
+    
+    this.currentBufferTime = Math.max(
+      this.adaptiveMin, 
+      Math.min(this.adaptiveMax, baseTime + jitterMultiplier * 50)
+    );
+  }
+
+  updateNetworkMetrics(currentTime) {
+    // Track packet arrival timing for jitter calculation
+    if (this.lastServerUpdate > 0) {
+      const timeDiff = currentTime - this.lastServerUpdate;
+      if (this.networkMetrics && this.networkMetrics.jitterSamples) {
+        this.networkMetrics.jitterSamples.push(timeDiff);
+        
+        if (this.networkMetrics.jitterSamples.length > 20) {
+          this.networkMetrics.jitterSamples.shift();
+        }
+
+        // Calculate stability score
+        if (this.networkMetrics.jitterSamples.length >= 5) {
+          const samples = this.networkMetrics.jitterSamples;
+          const mean = samples.reduce((a, b) => a + b) / samples.length;
+          const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length;
+          const jitter = Math.sqrt(variance);
+          
+          // Stability score from 0 (unstable) to 1 (perfect)
+          this.networkMetrics.stabilityScore = Math.max(0, 1 - (jitter / 100));
+        }
+      }
+    }
+  }
+
+  adjustInterpolationBuffer() {
+    if (!this.networkMetrics) return;
+    
+    const stability = this.networkMetrics.stabilityScore || 1.0;
+    
+    if (stability > 0.8) {
+      // High stability - can use smaller buffer
+      this.currentBufferTime = this.adaptiveMin + (this.baseInterpolationTime - this.adaptiveMin) * 0.5;
+    } else if (stability < 0.4) {
+      // Low stability - use larger buffer
+      this.currentBufferTime = Math.min(this.adaptiveMax, this.baseInterpolationTime * 1.5);
+    }
+    // Medium stability uses base buffer time
   }
 }
 

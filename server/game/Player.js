@@ -7,7 +7,7 @@ class Player {
     this.isIt = false;
     this.color = this.generateRandomColor();
     this.radius = 20;
-    this.speed = 300; // pixels per second - increased for faster gameplay
+    this.speed = 100; // pixels per second - significantly reduced for very controlled gameplay
     this.lastUpdate = Date.now();
     this.lastMovement = Date.now();
     this.velocity = { dx: 0, dy: 0 }; // Current movement direction
@@ -53,104 +53,6 @@ class Player {
     this.lastUpdate = Date.now();
   }
 
-  move(dx, dy, deltaTime, gameWidth, gameHeight, obstacles = []) {
-    // Check if player is stunned - if so, don't allow movement
-    if (this.isStunned) {
-      return;
-    }
-
-    // Store previous position for anti-cheat validation
-    const prevX = this.x;
-    const prevY = this.y;
-
-    // Store current velocity for prediction
-    this.velocity = { dx, dy };
-
-    // Adjust speed based on whether player is "it" (catcher gets speed boost)
-    const currentSpeed = this.isIt ? this.speed * 1.3 : this.speed; // 30% speed boost for catcher
-    const moveDistance = currentSpeed * (deltaTime / 1000);
-
-    // Calculate new position
-    let newX = this.x + dx * moveDistance;
-    let newY = this.y + dy * moveDistance;
-
-    // Anti-cheat: Validate maximum movement distance
-    const actualMovement = Math.sqrt((newX - prevX) ** 2 + (newY - prevY) ** 2);
-    const maxAllowedMovement = moveDistance * 1.1; // Allow 10% tolerance
-
-    if (actualMovement > maxAllowedMovement) {
-      console.warn(
-        `Player ${this.name} (${
-          this.id
-        }) attempted excessive movement: ${actualMovement.toFixed(
-          2
-        )} > ${maxAllowedMovement.toFixed(2)}`
-      );
-
-      // Limit movement to maximum allowed distance
-      const angle = Math.atan2(newY - prevY, newX - prevX);
-      newX = prevX + Math.cos(angle) * maxAllowedMovement;
-      newY = prevY + Math.sin(angle) * maxAllowedMovement;
-    }
-
-    // Keep player within bounds
-    newX = Math.max(this.radius, Math.min(gameWidth - this.radius, newX));
-    newY = Math.max(this.radius, Math.min(gameHeight - this.radius, newY));
-
-    // Check for obstacle collisions
-    const wouldCollide = this.checkObstacleCollision(newX, newY, obstacles);
-
-    if (!wouldCollide) {
-      this.x = newX;
-      this.y = newY;
-    } else {
-      // Try moving only in X direction
-      if (!this.checkObstacleCollision(newX, this.y, obstacles)) {
-        this.x = newX;
-      }
-      // Try moving only in Y direction
-      else if (!this.checkObstacleCollision(this.x, newY, obstacles)) {
-        this.y = newY;
-      }
-      // If both directions would cause collision, don't move
-    }
-
-    this.lastUpdate = Date.now();
-  }
-
-  checkObstacleCollision(x, y, obstacles) {
-    for (const obstacle of obstacles) {
-      if (obstacle.type === "rectangle") {
-        // Check circle-rectangle collision
-        const closestX = Math.max(
-          obstacle.x - obstacle.width / 2,
-          Math.min(x, obstacle.x + obstacle.width / 2)
-        );
-        const closestY = Math.max(
-          obstacle.y - obstacle.height / 2,
-          Math.min(y, obstacle.y + obstacle.height / 2)
-        );
-
-        const distanceX = x - closestX;
-        const distanceY = y - closestY;
-        const distanceSquared = distanceX * distanceX + distanceY * distanceY;
-
-        if (distanceSquared < this.radius * this.radius) {
-          return true;
-        }
-      } else if (obstacle.type === "circle") {
-        // Check circle-circle collision
-        const dx = x - obstacle.x;
-        const dy = y - obstacle.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < this.radius + obstacle.radius) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
 
   distanceTo(other) {
     const dx = this.x - other.x;

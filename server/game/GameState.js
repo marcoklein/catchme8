@@ -370,27 +370,65 @@ class GameState {
       const normalizedDx = magnitude > 0 ? dx / magnitude : 0;
       const normalizedDy = magnitude > 0 ? dy / magnitude : 0;
 
-      player.move(
+      this.applyMovementToPlayer(
+        player,
         normalizedDx,
         normalizedDy,
-        deltaTime,
-        this.gameWidth,
-        this.gameHeight,
-        this.obstacles
+        deltaTime
       );
     } else {
       // Movement is within valid range
-      player.move(
+      this.applyMovementToPlayer(
+        player,
         dx,
         dy,
-        deltaTime,
-        this.gameWidth,
-        this.gameHeight,
-        this.obstacles
+        deltaTime
       );
     }
 
     return true;
+  }
+
+  applyMovementToPlayer(player, dx, dy, deltaTime) {
+    // Check if player is stunned - if so, don't allow movement
+    if (player.isStunned) {
+      return;
+    }
+
+    // Store current velocity for prediction
+    player.velocity = { dx, dy };
+
+    // Adjust speed based on whether player is "it" (catcher gets speed boost)
+    const currentSpeed = player.isIt ? player.speed * 1.3 : player.speed; // 30% speed boost for catcher
+    const moveDistance = currentSpeed * (deltaTime / 1000);
+
+    // Calculate new position
+    let newX = player.x + dx * moveDistance;
+    let newY = player.y + dy * moveDistance;
+
+    // Keep player within bounds
+    newX = Math.max(player.radius, Math.min(this.gameWidth - player.radius, newX));
+    newY = Math.max(player.radius, Math.min(this.gameHeight - player.radius, newY));
+
+    // Check for obstacle collisions
+    const wouldCollide = this.checkObstacleCollision(newX, newY, player.radius);
+
+    if (!wouldCollide) {
+      player.x = newX;
+      player.y = newY;
+    } else {
+      // Try moving only in X direction
+      if (!this.checkObstacleCollision(newX, player.y, player.radius)) {
+        player.x = newX;
+      }
+      // Try moving only in Y direction
+      else if (!this.checkObstacleCollision(player.x, newY, player.radius)) {
+        player.y = newY;
+      }
+      // If both directions would cause collision, don't move
+    }
+
+    player.lastUpdate = Date.now();
   }
 
   checkObstacleCollision(x, y, radius) {
@@ -449,7 +487,10 @@ class GameState {
 
     // Apply power-up effect to player
     if (powerUp.type === "transparency") {
-      player.activateTransparency(powerUp.duration);
+      // Don't make AI players transparent (for visibility)
+      if (!player.isAI) {
+        player.activateTransparency(powerUp.duration);
+      }
     }
 
     // Set respawn timer

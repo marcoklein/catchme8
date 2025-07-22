@@ -19,9 +19,15 @@ class GameManager {
     this.playerInputStates = new Map();
     this.inputTracking = {};
 
-    // Rate limiting constants
-    this.MAX_INPUT_RATE = 35; // Max inputs per second
+    // Input buffering for network issues
+    this.inputBuffer = new Map(); // Stores buffered inputs during network issues
+    this.maxBufferSize = 10; // Maximum buffered inputs per player
+
+    // Rate limiting constants with exponential backoff
+    this.MAX_INPUT_RATE = 60; // Increased from 35 to 60 inputs per second to be less restrictive
     this.INPUT_RATE_WINDOW = 1000; // 1 second window
+    this.BASE_BACKOFF_DELAY = 50; // Base delay in ms for exponential backoff
+    this.MAX_BACKOFF_DELAY = 500; // Maximum delay in ms
 
     // Ghost player detection
     this.lastInactiveCheck = Date.now();
@@ -58,77 +64,10 @@ class GameManager {
     this.broadcastGameState();
 
     console.log(`Player ${playerName} (${socket.id}) joined the game`);
+    console.log(`Total players after join: ${this.gameState.players.size}`);
   }
 
-  handlePlayerMove(socket, movement) {
-    const now = Date.now();
-    const deltaTime = Math.min(now - this.lastUpdate, 100); // Cap deltaTime to prevent large jumps
-
-    // Anti-cheat: Rate limiting for movement updates
-    const player = this.gameState.players.get(socket.id);
-    if (player) {
-      // Initialize anti-cheat tracking if not exists
-      if (!player.antiCheat) {
-        player.antiCheat = {
-          lastMoveTime: now,
-          moveCount: 0,
-          suspiciousMovements: 0,
-          windowStart: now,
-        };
-      }
-
-      // Rate limiting: Check movement frequency
-      const timeSinceLastMove = now - player.antiCheat.lastMoveTime;
-      const minMoveInterval = 1000 / 60; // Maximum 60 moves per second
-
-      if (timeSinceLastMove < minMoveInterval) {
-        // Too frequent movement - ignore this update
-        return;
-      }
-
-      // Track movement count in sliding window (1 second)
-      if (now - player.antiCheat.windowStart > 1000) {
-        player.antiCheat.moveCount = 0;
-        player.antiCheat.windowStart = now;
-      }
-
-      player.antiCheat.moveCount++;
-      player.antiCheat.lastMoveTime = now;
-
-      // Check for excessive movement rate
-      if (player.antiCheat.moveCount > 35) {
-        // Allow up to 35 moves per second - silently ignore excessive updates
-        return;
-      }
-    }
-
-    if (this.gameState.updatePlayer(socket.id, movement, deltaTime)) {
-      const player = this.gameState.players.get(socket.id);
-      if (player) {
-        // Check for power-up collection
-        const collectedPowerUp = this.gameState.checkPowerUpCollision(player);
-        if (collectedPowerUp) {
-          // Notify all players about power-up collection
-          this.io.to("game").emit("powerUpCollected", {
-            playerId: player.id,
-            playerName: player.name,
-            powerUpType: collectedPowerUp.type,
-          });
-        }
-
-        // Check for collisions/tags immediately
-        this.checkCollisions(socket.id);
-
-        // Update player's last movement time for activity tracking
-        player.lastMovement = now;
-      }
-    }
-
-    // Update last update time for proper deltaTime calculation
-    this.lastUpdate = now;
-  }
-
-  // New server-authoritative input handler
+  // Server-authoritative input handler
   handlePlayerInput(socket, inputState) {
     const player = this.gameState.players.get(socket.id);
     if (!player) {
@@ -142,22 +81,71 @@ class GameManager {
         lastInputTime: 0,
         inputCount: 0,
         windowStart: now,
+        consecutiveViolations: 0,
+        lastViolationTime: 0,
+        backoffUntil: 0,
       };
     }
 
     const tracker = this.inputTracking[socket.id];
 
+    // Check if player is in backoff period
+    if (tracker.backoffUntil > now) {
+      // Player is in backoff, buffer the input instead of processing
+      if (!this.inputBuffer.has(socket.id)) {
+        this.inputBuffer.set(socket.id, []);
+      }
+      const buffer = this.inputBuffer.get(socket.id);
+      if (buffer.length < this.maxBufferSize) {
+        buffer.push({ ...inputState, lastUpdated: now });
+        console.log(`Buffered input for player ${socket.id} during backoff period, remaining: ${tracker.backoffUntil - now}ms`);
+      }
+      return;
+    }
+
     // Reset window if needed
     if (now - tracker.windowStart > this.INPUT_RATE_WINDOW) {
       tracker.inputCount = 0;
       tracker.windowStart = now;
+      
+      // Reset consecutive violations if enough time has passed
+      if (now - tracker.lastViolationTime > this.INPUT_RATE_WINDOW * 2) {
+        tracker.consecutiveViolations = 0;
+      }
     }
 
     tracker.inputCount++;
 
     if (tracker.inputCount > this.MAX_INPUT_RATE) {
-      // Silently ignore excessive input updates
-      return;
+      // Log excessive input but don't completely block - just throttle
+      if (tracker.inputCount % 10 === 0) { // Log every 10th excessive input to avoid spam
+        console.warn(`Player ${socket.id} sending excessive input (${tracker.inputCount}/${this.MAX_INPUT_RATE} per second)`);
+      }
+      
+      // If rate limiting would normally block, apply exponential backoff
+      if (tracker.inputCount > this.MAX_INPUT_RATE * 1.5) {
+        tracker.consecutiveViolations++;
+        tracker.lastViolationTime = now;
+        
+        // Calculate exponential backoff delay
+        const backoffDelay = Math.min(
+          this.BASE_BACKOFF_DELAY * Math.pow(2, tracker.consecutiveViolations - 1),
+          this.MAX_BACKOFF_DELAY
+        );
+        tracker.backoffUntil = now + backoffDelay;
+        
+        console.warn(`Player ${socket.id} rate limited, backoff for ${backoffDelay}ms (violation #${tracker.consecutiveViolations})`);
+        
+        // Buffer this input for later use during network issues
+        if (!this.inputBuffer.has(socket.id)) {
+          this.inputBuffer.set(socket.id, []);
+        }
+        const buffer = this.inputBuffer.get(socket.id);
+        if (buffer.length < this.maxBufferSize) {
+          buffer.push({ ...inputState, lastUpdated: now });
+        }
+        return; // Block current input but keep it buffered
+      }
     }
 
     // Store input state for this player
@@ -242,9 +230,10 @@ class GameManager {
     if (player) {
       this.gameState.removePlayer(socket.id);
 
-      // Clean up input tracking
+      // Clean up input tracking and buffers
       this.playerInputStates.delete(socket.id);
       delete this.inputTracking[socket.id];
+      this.inputBuffer.delete(socket.id);
 
       this.broadcastGameState();
       console.log(`Player ${player.name} (${socket.id}) disconnected`);
@@ -373,6 +362,7 @@ class GameManager {
       (p) => p.isAI
     );
 
+
     // Add AI if we have human players but not enough total players for a good game
     return (
       humanPlayers.length > 0 &&
@@ -453,7 +443,34 @@ class GameManager {
 
       // Skip if input is too old (player might have disconnected)
       const now = Date.now();
-      if (now - inputState.lastUpdated > 1000) {
+      const INPUT_EXPIRY_TIME = 3000; // Increased from 1000ms to 3000ms (3 seconds) to handle network issues better
+      const inputAge = now - inputState.lastUpdated;
+      
+      if (inputAge > INPUT_EXPIRY_TIME) {
+        // Before clearing, check if we have buffered inputs to use
+        const bufferedInputs = this.inputBuffer.get(socketId);
+        if (bufferedInputs && bufferedInputs.length > 0) {
+          // Use oldest buffered input
+          const bufferedInput = bufferedInputs.shift();
+          console.log(`Using buffered input for player ${player?.name} (${socketId}), ${bufferedInputs.length} remaining in buffer`);
+          this.playerInputStates.set(socketId, {
+            ...bufferedInput,
+            lastUpdated: now - 50 // Mark as recent but not too recent
+          });
+          
+          // Clean up empty buffer
+          if (bufferedInputs.length === 0) {
+            this.inputBuffer.delete(socketId);
+          }
+          continue;
+        }
+        
+        // Clear old input state to stop ghost movement
+        console.log(`Clearing expired input for player ${player?.name} (${socketId}), age: ${inputAge}ms`);
+        this.playerInputStates.delete(socketId);
+        if (player) {
+          player.currentInput = null;
+        }
         continue;
       }
 
@@ -462,6 +479,12 @@ class GameManager {
 
       // Calculate movement using the MovementEngine
       const movement = MovementEngine.calculateMovement(player, deltaTime);
+      
+      // Debug: Log when movement is blocked
+      if ((inputState.up || inputState.down || inputState.left || inputState.right || inputState.isTouchActive) && 
+          movement.dx === 0 && movement.dy === 0) {
+        console.log(`Movement blocked for player ${player.name}: isStunned=${player.isStunned}, input age=${now - inputState.lastUpdated}ms`);
+      }
 
       if (movement.dx !== 0 || movement.dy !== 0) {
         // Update player position
@@ -585,8 +608,7 @@ class GameManager {
       const hasInputState = this.playerInputStates.has(playerId);
 
       if (
-        timeSinceActivity > INACTIVE_TIMEOUT ||
-        (!hasInputState && timeSinceActivity > 5000)
+        timeSinceActivity > INACTIVE_TIMEOUT
       ) {
         console.log(
           `Removing inactive player: ${
@@ -606,9 +628,10 @@ class GameManager {
       if (player) {
         this.gameState.removePlayer(playerId);
 
-        // Clean up input tracking
+        // Clean up input tracking and buffers
         this.playerInputStates.delete(playerId);
         delete this.inputTracking[playerId];
+        this.inputBuffer.delete(playerId);
 
         removedCount++;
         console.log(`Inactive player ${player.name} (${playerId}) removed`);
