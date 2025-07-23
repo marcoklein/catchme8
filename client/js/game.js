@@ -69,6 +69,7 @@ class Game {
   setupCanvas() {
     const canvas = document.getElementById("gameCanvas");
     renderer = new Renderer(canvas);
+    window.renderer = renderer; // Make renderer globally available
   }
 
   joinGame() {

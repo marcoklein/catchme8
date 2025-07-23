@@ -1,50 +1,133 @@
-class Renderer {
-  constructor(canvas) {
+import { GameStateData, PlayerState, Obstacle, PowerUp, Star, StunOrb, Position } from '@shared/types';
+
+interface ExplosionEffect {
+  x: number;
+  y: number;
+  radius: number;
+  startTime: number;
+  duration: number;
+}
+
+interface ScreenShake {
+  active: boolean;
+  intensity: number;
+  duration: number;
+  startTime: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface InterpolationData {
+  positions: Array<{
+    x: number;
+    y: number;
+    timestamp: number;
+    isIt?: boolean;
+    isTransparent?: boolean;
+    isStunned?: boolean;
+  }>;
+  trail?: Array<{
+    x: number;
+    y: number;
+    alpha: number;
+  }>;
+  lastUpdate?: number;
+  transitionTarget?: Position;
+  transitionStart?: number;
+  transitionDuration?: number;
+}
+
+interface NetworkMetrics {
+  jitterSamples: number[];
+  packetLossSamples: number[];
+  latencySamples: number[];
+  stabilityScore: number;
+}
+
+interface DebrisParticle {
+  angle: number;
+  speed: number;
+  size: number;
+  color: string;
+  life: number;
+  trailLength: number;
+  rotationSpeed: number;
+}
+
+export class Renderer {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private gameState: GameStateData | null = null;
+  private myPlayerId: string | null = null;
+  private interpolationBuffer = new Map<string, InterpolationData>();
+  private trailBuffer = new Map<string, InterpolationData>();
+  private lastServerUpdate = Date.now();
+  private serverUpdateInterval = 1000 / 30; // Server broadcasts at 30 FPS
+  
+  // Enhanced interpolation configuration
+  private baseInterpolationTime = 250; // Increased from 150ms
+  private adaptiveMin = 150; // Increased from 100ms
+  private adaptiveMax = 500; // Increased from 300ms
+  private currentBufferTime = this.baseInterpolationTime;
+  
+  // Network quality tracking
+  private networkMetrics: NetworkMetrics = {
+    jitterSamples: [],
+    packetLossSamples: [],
+    latencySamples: [],
+    stabilityScore: 1.0
+  };
+  
+  private networkJitterBuffer: number[] = []; // Track network timing for adaptive interpolation
+  private maxJitterSamples = 15; // Increased from 10
+  private isMobile: boolean;
+
+  // Enhanced position tracking
+  private maxPositionHistory = 16; // Increased from 8
+  private velocityHistory = new Map<string, any>(); // Track velocity over time
+  private accelerationHistory = new Map<string, any>(); // Track acceleration
+  private momentumData = new Map<string, any>(); // Track momentum for each player
+
+  // Interpolation algorithm settings
+  private momentumDecay = 0.95; // Momentum preservation factor
+  private directionSmoothingStrength = 0.3;
+  private velocitySmoothing = 0.8;
+
+  // Extrapolation settings
+  private maxExtrapolationTime = 200; // Increased from 100ms
+  private confidenceThresholds = {
+    high: 0.8,    // Use physics-based extrapolation
+    medium: 0.5,  // Use velocity-based extrapolation  
+    low: 0.2      // Use conservative extrapolation
+  };
+
+  // Mobile-specific optimizations
+  private maxTrailLength?: number;
+  private enableLowPowerMode?: boolean;
+
+  // Screen shake system
+  private screenShake: ScreenShake = {
+    active: false,
+    intensity: 0,
+    duration: 0,
+    startTime: 0,
+    offsetX: 0,
+    offsetY: 0
+  };
+
+  // Explosion effects
+  private explosionEffects: ExplosionEffect[] = [];
+  private explosionDebrisParticles: DebrisParticle[] | null = null;
+  private lastRenderTime = 0;
+
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
-    this.gameState = null;
-    this.myPlayerId = null;
-    this.interpolationBuffer = new Map(); // Store interpolation data for each player
-    this.trailBuffer = new Map(); // Separate buffer for trail effects
-    this.lastServerUpdate = Date.now();
-    this.serverUpdateInterval = 1000 / 30; // Server broadcasts at 30 FPS
-    
-    // Enhanced interpolation configuration
-    this.baseInterpolationTime = 250; // Increased from 150ms
-    this.adaptiveMin = 150; // Increased from 100ms
-    this.adaptiveMax = 500; // Increased from 300ms
-    this.currentBufferTime = this.baseInterpolationTime;
-    
-    // Network quality tracking
-    this.networkMetrics = {
-      jitterSamples: [],
-      packetLossSamples: [],
-      latencySamples: [],
-      stabilityScore: 1.0
-    };
-    
-    this.networkJitterBuffer = []; // Track network timing for adaptive interpolation
-    this.maxJitterSamples = 15; // Increased from 10
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("Could not get 2D rendering context");
+    }
+    this.ctx = ctx;
     this.isMobile = this.detectMobile();
-
-    // Enhanced position tracking
-    this.maxPositionHistory = 16; // Increased from 8
-    this.velocityHistory = new Map(); // Track velocity over time
-    this.accelerationHistory = new Map(); // Track acceleration
-    this.momentumData = new Map(); // Track momentum for each player
-
-    // Interpolation algorithm settings
-    this.momentumDecay = 0.95; // Momentum preservation factor
-    this.directionSmoothingStrength = 0.3;
-    this.velocitySmoothing = 0.8;
-
-    // Extrapolation settings
-    this.maxExtrapolationTime = 200; // Increased from 100ms
-    this.confidenceThresholds = {
-      high: 0.8,    // Use physics-based extrapolation
-      medium: 0.5,  // Use velocity-based extrapolation  
-      low: 0.2      // Use conservative extrapolation
-    };
 
     // Mobile-specific optimizations
     if (this.isMobile) {
@@ -52,19 +135,9 @@ class Renderer {
       this.maxTrailLength = 3; // Reduced trail effects
       this.enableLowPowerMode = true;
     }
-
-    // Screen shake system
-    this.screenShake = {
-      active: false,
-      intensity: 0,
-      duration: 0,
-      startTime: 0,
-      offsetX: 0,
-      offsetY: 0
-    };
   }
 
-  detectMobile() {
+  private detectMobile(): boolean {
     return (
       /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
         navigator.userAgent
@@ -72,7 +145,7 @@ class Renderer {
     );
   }
 
-  setGameState(gameState) {
+  public setGameState(gameState: GameStateData): void {
     const now = Date.now();
 
     // Track network timing for adaptive interpolation
@@ -105,11 +178,11 @@ class Renderer {
     this.gameState = gameState;
   }
 
-  setMyPlayerId(playerId) {
+  public setMyPlayerId(playerId: string): void {
     this.myPlayerId = playerId;
   }
 
-  updatePlayerInterpolation(player, timestamp) {
+  private updatePlayerInterpolation(player: PlayerState, timestamp: number): void {
     if (!player || !player.id) {
       console.warn('Invalid player data for interpolation:', player);
       return;
@@ -121,7 +194,7 @@ class Renderer {
       });
     }
 
-    const data = this.interpolationBuffer.get(player.id);
+    const data = this.interpolationBuffer.get(player.id)!;
     
     // Validate position data
     if (typeof player.x !== 'number' || typeof player.y !== 'number') {
@@ -132,7 +205,10 @@ class Renderer {
     data.positions.push({
       x: player.x,
       y: player.y,
-      timestamp: timestamp
+      timestamp: timestamp,
+      isIt: player.isIt,
+      isTransparent: player.isTransparent,
+      isStunned: player.isStunned,
     });
 
     // Keep only recent positions for performance
@@ -140,9 +216,11 @@ class Renderer {
     if (data.positions.length > maxPositions) {
       data.positions.shift();
     }
+
+    data.lastUpdate = timestamp;
   }
 
-  getInterpolatedPlayerPosition(player, currentTime) {
+  private getInterpolatedPlayerPosition(player: PlayerState, currentTime: number): Position {
     console.log(`getInterpolatedPlayerPosition called for: ${player.name}, isAI: ${player.isAI}, type: ${typeof player.isAI}`);
     
     // Skip interpolation for AI players to avoid NaN issues
@@ -151,63 +229,19 @@ class Renderer {
       return { x: 400, y: 300 }; // Force a visible position for all AI players
     }
     
-    const data = this.interpolationBuffer.get(player.id);
-    if (!data || data.positions.length === 0) {
-      return { x: player.x, y: player.y };
-    }
-
-    const positions = data.positions;
-    
-    // Use adaptive buffer time - fallback to 150ms if not set
-    const bufferTime = this.currentBufferTime || 150;
-    const targetTime = currentTime - bufferTime;
-
-    // If we only have one position, return it
-    if (positions.length === 1) {
-      return { x: positions[0].x, y: positions[0].y };
-    }
-
-    // Find the two positions to interpolate between
-    let prevPos = null;
-    let nextPos = null;
-
-    for (let i = 0; i < positions.length - 1; i++) {
-      if (positions[i].timestamp <= targetTime && positions[i + 1].timestamp >= targetTime) {
-        prevPos = positions[i];
-        nextPos = positions[i + 1];
-        break;
-      }
-    }
-
-    // Handle extrapolation cases
-    if (!prevPos || !nextPos) {
-      // Use simple extrapolation
-      if (positions.length >= 2) {
-        return this.simpleExtrapolation(player, currentTime, data);
-      }
-      
-      // Fallback to latest known position
-      const latest = positions[positions.length - 1];
-      return { x: latest.x, y: latest.y };
-    }
-
-    // Calculate interpolation factor
-    const totalTime = nextPos.timestamp - prevPos.timestamp;
-    const elapsed = targetTime - prevPos.timestamp;
-    const t = Math.max(0, Math.min(1, totalTime > 0 ? elapsed / totalTime : 0));
-
-    // Use simple linear interpolation for now to ensure stability
-    return this.linearInterpolation(prevPos, nextPos, t);
+    // For now, skip interpolation for ALL players to ensure visibility
+    // This fixes the NaN coordinate issue affecting both AI and human players
+    return { x: player.x, y: player.y };
   }
 
-  linearInterpolation(pos1, pos2, t) {
+  private linearInterpolation(pos1: Position, pos2: Position, t: number): Position {
     return {
       x: pos1.x + (pos2.x - pos1.x) * t,
       y: pos1.y + (pos2.y - pos1.y) * t
     };
   }
 
-  simpleExtrapolation(player, currentTime, data) {
+  private simpleExtrapolation(player: PlayerState, currentTime: number, data: InterpolationData): Position {
     const positions = data.positions;
     if (positions.length < 2) {
       return { x: player.x, y: player.y };
@@ -234,239 +268,12 @@ class Renderer {
     };
   }
 
-  setMyPlayerId(playerId) {
-    this.myPlayerId = playerId;
-  }
-
-  extrapolatePosition(player, currentTime, data) {
-    if (!data || data.positions.length < 2) {
-      return { x: player.x, y: player.y };
-    }
-
-    // Use the last two positions to calculate velocity
-    const pos1 = data.positions[data.positions.length - 2];
-    const pos2 = data.positions[data.positions.length - 1];
-
-    const timeDiff = pos2.timestamp - pos1.timestamp;
-    if (timeDiff <= 0) return { x: pos2.x, y: pos2.y };
-
-    const velocityX = (pos2.x - pos1.x) / timeDiff;
-    const velocityY = (pos2.y - pos1.y) / timeDiff;
-
-    // Extrapolate forward from the last known position
-    const extrapolateTime = currentTime - pos2.timestamp;
-    const maxExtrapolation = 100; // Don't extrapolate more than 100ms
-    const clampedTime = Math.min(extrapolateTime, maxExtrapolation);
-
-    return {
-      x: pos2.x + velocityX * clampedTime,
-      y: pos2.y + velocityY * clampedTime,
-    };
-  }
-
-  updatePlayerInterpolation(player, timestamp) {
-    if (!this.interpolationBuffer.has(player.id)) {
-      this.interpolationBuffer.set(player.id, {
-        positions: [],
-        trail: [],
-        lastUpdate: timestamp,
-      });
-    }
-
-    const data = this.interpolationBuffer.get(player.id);
-
-    // Add new position with timestamp
-    data.positions.push({
-      x: player.x,
-      y: player.y,
-      timestamp: timestamp,
-      isIt: player.isIt,
-      isTransparent: player.isTransparent,
-      isStunned: player.isStunned,
-    });
-    
-
-    // Keep only the last several positions for interpolation
-    const maxPositions = 8; // Increased from 3 to 8 for better interpolation
-    if (data.positions.length > maxPositions) {
-      data.positions = data.positions.slice(-maxPositions);
-    }
-
-    data.lastUpdate = timestamp;
-  }
-
-  getInterpolatedPlayerPosition(player, currentTime) {
-    // For now, skip interpolation for ALL players to ensure visibility
-    // This fixes the NaN coordinate issue affecting both AI and human players
-    return { x: player.x, y: player.y };
-
-    // Local player uses client-side prediction (no interpolation delay)
-    // Remote players use interpolation for smooth movement
-    const isLocalPlayer = player.id === this.myPlayerId;
-    
-    // For local player, use direct position since it's already predicted
-    if (isLocalPlayer) {
-      return { x: player.x, y: player.y };
-    }
-    
-    const interpolationDelay = this.interpolationTime;
-
-    const positions = data.positions;
-    const renderTime = currentTime - interpolationDelay;
-
-    // Find the two positions to interpolate between
-    let prevPos = null;
-    let nextPos = null;
-
-    for (let i = 0; i < positions.length - 1; i++) {
-      if (
-        positions[i].timestamp <= renderTime &&
-        positions[i + 1].timestamp >= renderTime
-      ) {
-        prevPos = positions[i];
-        nextPos = positions[i + 1];
-        break;
-      }
-    }
-
-    // If we don't have two positions to interpolate between, use extrapolation
-    if (!prevPos || !nextPos) {
-      // Try to extrapolate from available data
-      if (positions.length >= 2) {
-        return this.extrapolatePosition(player, renderTime, data);
-      }
-
-      // Fallback to latest position with smooth transition
-      const latest = positions[positions.length - 1];
-      return this.smoothTransitionToTarget(
-        player.id,
-        { x: latest.x, y: latest.y },
-        currentTime
-      );
-    }
-
-    // Calculate interpolation factor (0 to 1)
-    const timeDiff = nextPos.timestamp - prevPos.timestamp;
-    const factor =
-      timeDiff > 0 ? (renderTime - prevPos.timestamp) / timeDiff : 0;
-
-    // Clamp factor between 0 and 1
-    const clampedFactor = Math.max(0, Math.min(1, factor));
-
-    // Use Hermite interpolation for smoother movement
-    return this.hermiteInterpolation(prevPos, nextPos, clampedFactor, data);
-  }
-
-  hermiteInterpolation(pos1, pos2, t, data) {
-    // Simple Hermite interpolation using tangent estimation
-    const positions = data.positions;
-
-    // Estimate velocities (tangents) at the two points
-    let vel1 = { x: 0, y: 0 };
-    let vel2 = { x: 0, y: 0 };
-
-    // Find velocity at pos1
-    const pos1Index = positions.indexOf(pos1);
-    if (pos1Index > 0) {
-      const prev = positions[pos1Index - 1];
-      const timeDiff = pos1.timestamp - prev.timestamp;
-      if (timeDiff > 0) {
-        vel1.x = (pos1.x - prev.x) / timeDiff;
-        vel1.y = (pos1.y - prev.y) / timeDiff;
-      }
-    }
-
-    // Find velocity at pos2
-    const pos2Index = positions.indexOf(pos2);
-    if (pos2Index < positions.length - 1) {
-      const next = positions[pos2Index + 1];
-      const timeDiff = next.timestamp - pos2.timestamp;
-      if (timeDiff > 0) {
-        vel2.x = (next.x - pos2.x) / timeDiff;
-        vel2.y = (next.y - pos2.y) / timeDiff;
-      }
-    }
-
-    // Hermite basis functions
-    const t2 = t * t;
-    const t3 = t2 * t;
-
-    const h1 = 2 * t3 - 3 * t2 + 1;
-    const h2 = -2 * t3 + 3 * t2;
-    const h3 = t3 - 2 * t2 + t;
-    const h4 = t3 - t2;
-
-    // Scale tangents by time difference
-    const timeDiff = pos2.timestamp - pos1.timestamp;
-
-    return {
-      x:
-        h1 * pos1.x +
-        h2 * pos2.x +
-        h3 * vel1.x * timeDiff +
-        h4 * vel2.x * timeDiff,
-      y:
-        h1 * pos1.y +
-        h2 * pos2.y +
-        h3 * vel1.y * timeDiff +
-        h4 * vel2.y * timeDiff,
-    };
-  }
-
-  smoothTransitionToTarget(playerId, targetPos, currentTime) {
-    // Get current interpolation data
-    const data = this.interpolationBuffer.get(playerId);
-    if (!data) return targetPos;
-
-    // Store transition target if not exists
-    if (!data.transitionTarget) {
-      data.transitionTarget = targetPos;
-      data.transitionStart = currentTime;
-      data.transitionDuration = 100; // 100ms smooth transition
-    }
-
-    // Check if we need a new transition
-    const targetDistance = Math.sqrt(
-      Math.pow(targetPos.x - data.transitionTarget.x, 2) +
-        Math.pow(targetPos.y - data.transitionTarget.y, 2)
-    );
-
-    if (targetDistance > 5) {
-      // New target significantly different
-      data.transitionTarget = targetPos;
-      data.transitionStart = currentTime;
-    }
-
-    // Calculate transition progress
-    const elapsed = currentTime - data.transitionStart;
-    const progress = Math.min(1, elapsed / data.transitionDuration);
-
-    // Use the last known position if available
-    const startPos =
-      data.positions.length > 0
-        ? data.positions[data.positions.length - 1]
-        : targetPos;
-
-    // Smooth transition using easing
-    const easedProgress = this.easeOutCubic(progress);
-
-    return {
-      x: startPos.x + (data.transitionTarget.x - startPos.x) * easedProgress,
-      y: startPos.y + (data.transitionTarget.y - startPos.y) * easedProgress,
-    };
-  }
-
-  easeOutCubic(t) {
+  private easeOutCubic(t: number): number {
     return 1 - Math.pow(1 - t, 3);
   }
 
-  triggerExplosionEffect(x, y, radius) {
+  public triggerExplosionEffect(x: number, y: number, radius: number): void {
     console.log(`EXPLOSION TRIGGERED at (${x}, ${y}) with radius ${radius}`);
-    
-    // Store explosion data for rendering
-    if (!this.explosionEffects) {
-      this.explosionEffects = [];
-    }
     
     this.explosionEffects.push({
       x: x,
@@ -479,46 +286,10 @@ class Renderer {
     console.log(`Total explosions active: ${this.explosionEffects.length}`);
   }
 
-  triggerScreenShake(intensity, duration) {
-    this.screenShake = {
-      active: true,
-      intensity: intensity,
-      duration: duration,
-      startTime: Date.now(),
-      offsetX: 0,
-      offsetY: 0
-    };
-  }
-
-  updateScreenShake() {
-    if (!this.screenShake.active) return;
-    
-    const now = Date.now();
-    const elapsed = now - this.screenShake.startTime;
-    const progress = elapsed / this.screenShake.duration;
-    
-    if (progress >= 1) {
-      // Screen shake complete
-      this.screenShake.active = false;
-      this.screenShake.offsetX = 0;
-      this.screenShake.offsetY = 0;
-      return;
-    }
-    
-    // Calculate shake intensity with decay
-    const decay = 1 - this.easeOutCubic(progress);
-    const currentIntensity = this.screenShake.intensity * decay;
-    
-    // Generate random shake offset
-    this.screenShake.offsetX = (Math.random() - 0.5) * currentIntensity * 2;
-    this.screenShake.offsetY = (Math.random() - 0.5) * currentIntensity * 2;
-  }
-
-  render() {
+  public render(): void {
     if (!this.gameState) return;
 
     const renderStart = performance.now();
-
     const currentTime = Date.now();
 
     // Clear canvas
@@ -546,7 +317,7 @@ class Renderer {
 
     // Draw stun pulse effects for IT players
     this.gameState.players.forEach((player) => {
-      if (player.isIt && player.isPerformingStunPulse) {
+      if (player.isIt && (player as any).isPerformingStunPulse) {
         this.drawStunPulseEffect(player);
       }
     });
@@ -558,15 +329,15 @@ class Renderer {
     this.drawUI();
 
     // Draw virtual joystick for mobile devices
-    if (this.isMobile && window.input && window.input.touchInput) {
-      window.input.touchInput.renderVirtualJoystick(this.ctx);
+    if (this.isMobile && (window as any).input && (window as any).input.touchInput) {
+      (window as any).input.touchInput.renderVirtualJoystick(this.ctx);
     }
 
     // Track render time for debug stats
     this.lastRenderTime = performance.now() - renderStart;
   }
 
-  drawBackground() {
+  private drawBackground(): void {
     // Draw a subtle grid pattern
     this.ctx.strokeStyle = "#e0e0e0";
     this.ctx.lineWidth = 1;
@@ -590,16 +361,16 @@ class Renderer {
     this.ctx.globalAlpha = 1;
   }
 
-  drawObstacles() {
-    if (!this.gameState.obstacles) return;
+  private drawObstacles(): void {
+    if (!this.gameState?.obstacles) return;
 
     this.ctx.save();
     this.ctx.fillStyle = "#555555";
     this.ctx.strokeStyle = "#333333";
     this.ctx.lineWidth = 2;
 
-    this.gameState.obstacles.forEach((obstacle) => {
-      if (obstacle.type === "rectangle") {
+    this.gameState.obstacles.forEach((obstacle: Obstacle) => {
+      if (obstacle.type === "rectangle" && obstacle.width && obstacle.height) {
         // Draw rectangle obstacle
         const x = obstacle.x - obstacle.width / 2;
         const y = obstacle.y - obstacle.height / 2;
@@ -617,7 +388,7 @@ class Renderer {
           obstacle.height - 10
         );
         this.ctx.restore();
-      } else if (obstacle.type === "circle") {
+      } else if (obstacle.type === "circle" && obstacle.radius) {
         // Draw circle obstacle
         this.ctx.beginPath();
         this.ctx.arc(obstacle.x, obstacle.y, obstacle.radius, 0, Math.PI * 2);
@@ -643,12 +414,12 @@ class Renderer {
     this.ctx.restore();
   }
 
-  drawPowerUps() {
-    if (!this.gameState.powerUps) return;
+  private drawPowerUps(): void {
+    if (!this.gameState?.powerUps) return;
 
     this.ctx.save();
 
-    this.gameState.powerUps.forEach((powerUp) => {
+    this.gameState.powerUps.forEach((powerUp: PowerUp) => {
       if (!powerUp.active) return;
 
       // Create a pulsing effect
@@ -710,12 +481,12 @@ class Renderer {
     this.ctx.restore();
   }
 
-  drawStars() {
-    if (!this.gameState.stars) return;
+  private drawStars(): void {
+    if (!this.gameState?.stars) return;
 
     this.ctx.save();
 
-    this.gameState.stars.forEach((star) => {
+    this.gameState.stars.forEach((star: Star) => {
       if (!star.active) return;
 
       // Create a pulsing glow effect
@@ -783,12 +554,12 @@ class Renderer {
     this.ctx.restore();
   }
 
-  drawStunOrbs() {
-    if (!this.gameState.stunOrbs) return;
+  private drawStunOrbs(): void {
+    if (!this.gameState?.stunOrbs) return;
 
     this.ctx.save();
 
-    this.gameState.stunOrbs.forEach((stunOrb) => {
+    this.gameState.stunOrbs.forEach((stunOrb: StunOrb) => {
       if (!stunOrb.active) return;
 
       // Create electrical animation
@@ -857,10 +628,11 @@ class Renderer {
     this.ctx.restore();
   }
 
-  drawStunPulseEffect(player) {
-    if (!player.isPerformingStunPulse) return;
+  private drawStunPulseEffect(player: PlayerState): void {
+    const playerAny = player as any;
+    if (!playerAny.isPerformingStunPulse) return;
 
-    const elapsed = Date.now() - player.stunPulseStartTime;
+    const elapsed = Date.now() - playerAny.stunPulseStartTime;
     const progress = elapsed / 3000; // 3 second duration
     const radius = 80 * progress; // Expanding radius
     const alpha = 1 - progress; // Fading out
@@ -897,7 +669,7 @@ class Renderer {
   }
 
   // Helper method to draw a star shape
-  drawStar(x, y, radius, points, innerRadiusRatio) {
+  private drawStar(x: number, y: number, radius: number, points: number, innerRadiusRatio: number): void {
     const innerRadius = radius * innerRadiusRatio;
     let angle = -Math.PI / 2; // Start from top
     const angleStep = Math.PI / points;
@@ -927,7 +699,7 @@ class Renderer {
     this.ctx.stroke();
   }
 
-  drawPlayer(player, currentTime) {
+  private drawPlayer(player: PlayerState, currentTime: number): void {
     const isMyPlayer = player.id === this.myPlayerId;
 
     // If player is transparent and it's not the current player, don't render them
@@ -942,29 +714,30 @@ class Renderer {
     );
     const renderX = interpolatedPos.x;
     const renderY = interpolatedPos.y;
-    
 
     // Initialize or update trail buffer separately from interpolation data
     if (!this.trailBuffer.has(player.id)) {
       this.trailBuffer.set(player.id, {
+        positions: [],
         trail: [],
         lastUpdate: currentTime,
       });
     }
 
-    const trailData = this.trailBuffer.get(player.id);
+    const trailData = this.trailBuffer.get(player.id)!;
 
     // Add to trail if player moved significantly
     const lastTrailPos =
-      trailData.trail.length > 0
+      trailData.trail && trailData.trail.length > 0
         ? trailData.trail[trailData.trail.length - 1]
-        : { x: renderX, y: renderY };
+        : { x: renderX, y: renderY, alpha: 1.0 };
 
     const dx = renderX - lastTrailPos.x;
     const dy = renderY - lastTrailPos.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 2) {
+      if (!trailData.trail) trailData.trail = [];
       trailData.trail.push({
         x: lastTrailPos.x,
         y: lastTrailPos.y,
@@ -978,8 +751,8 @@ class Renderer {
     }
 
     // Draw trail - reduced complexity on mobile
-    if (!this.isMobile || !this.enableLowPowerMode) {
-      trailData.trail.forEach((point, index) => {
+    if (trailData.trail && (!this.isMobile || !this.enableLowPowerMode)) {
+      trailData.trail.forEach((point) => {
         point.alpha *= 0.85; // Fade trail
         if (point.alpha > 0.1) {
           this.ctx.beginPath();
@@ -995,7 +768,9 @@ class Renderer {
     }
 
     // Remove faded trail points
-    trailData.trail = trailData.trail.filter((point) => point.alpha > 0.1);
+    if (trailData.trail) {
+      trailData.trail = trailData.trail.filter((point) => point.alpha > 0.1);
+    }
 
     // Apply transparency effect if this is the player's own transparent character
     if (player.isTransparent && isMyPlayer) {
@@ -1084,20 +859,18 @@ class Renderer {
     }
 
     // Draw AI behavior indicator (for debugging - small text under AI players)
-    if (player.isAI && player.currentBehavior) {
+    if (player.isAI && (player as any).currentBehavior) {
       this.ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
       this.ctx.font = "10px Arial";
       this.ctx.fillText(
-        player.currentBehavior,
+        (player as any).currentBehavior,
         renderX,
         renderY + player.radius + 20
       );
     }
   }
 
-  drawExplosionEffects(currentTime) {
-    if (!this.explosionEffects) return;
-
+  private drawExplosionEffects(currentTime: number): void {
     // Filter out expired explosions and draw active ones
     this.explosionEffects = this.explosionEffects.filter(explosion => {
       const elapsed = currentTime - explosion.startTime;
@@ -1113,7 +886,7 @@ class Renderer {
     });
   }
 
-  drawExplosion(explosion, progress) {
+  private drawExplosion(explosion: ExplosionEffect, progress: number): void {
     const { x, y } = explosion;
     
     console.log(`Drawing explosion at (${x}, ${y}) with progress ${progress.toFixed(3)}`);
@@ -1197,246 +970,14 @@ class Renderer {
     this.ctx.setLineDash([]);
   }
 
-  drawMassiveLightningNetwork(centerX, centerY, maxRadius, progress, opacity) {
-    // Multiple lightning rings with different properties for massive coverage
-    const lightningRings = [
-      { count: 72, radiusMultiplier: 1.0, thickness: 4, opacity: opacity, color: "#FFFFFF" },
-      { count: 48, radiusMultiplier: 0.7, thickness: 3, opacity: opacity * 0.8, color: "#00FFFF" },
-      { count: 32, radiusMultiplier: 1.3, thickness: 2, opacity: opacity * 0.6, color: "#FFD700" },
-      { count: 24, radiusMultiplier: 0.4, thickness: 3, opacity: opacity * 0.9, color: "#FFFFFF" },
-      { count: 16, radiusMultiplier: 1.6, thickness: 2, opacity: opacity * 0.5, color: "#FF6B35" }
-    ];
-    
-    // Enhanced shadow effects
-    this.ctx.shadowColor = "#00FFFF";
-    this.ctx.shadowBlur = 15;
-    
-    lightningRings.forEach(ring => {
-      this.ctx.globalAlpha = ring.opacity;
-      this.ctx.strokeStyle = ring.color;
-      this.ctx.lineWidth = ring.thickness;
-      
-      for (let i = 0; i < ring.count; i++) {
-        const angle = (i / ring.count) * Math.PI * 2 + Math.random() * 0.2; // Add slight randomness
-        const baseLength = maxRadius * ring.radiusMultiplier * (0.7 + Math.random() * 0.4);
-        
-        // Create massive branching lightning bolts
-        this.drawMassiveLightningBolt(centerX, centerY, angle, baseLength, progress, ring.thickness);
-      }
-    });
-    
-    this.ctx.shadowBlur = 0; // Reset shadow
-  }
-
-  drawElectricalDischarge(centerX, centerY, radius, progress, opacity) {
-    // Legacy method - now redirects to massive lightning network
-    this.drawMassiveLightningNetwork(centerX, centerY, radius, progress, opacity);
-  }
-
-  drawMassiveLightningBolt(startX, startY, angle, length, progress, thickness) {
-    const segments = 10 + Math.floor(Math.random() * 8); // More segments for detailed lightning
-    const segmentLength = length / segments;
-    
-    this.ctx.beginPath();
-    this.ctx.moveTo(startX, startY);
-    
-    let currentX = startX;
-    let currentY = startY;
-    
-    for (let i = 1; i <= segments; i++) {
-      const segmentProgress = i / segments;
-      const animationProgress = Math.min(1, progress * 2.5); // Faster animation for dramatic effect
-      
-      if (segmentProgress > animationProgress) break;
-      
-      // Base position along the main direction
-      const baseX = startX + Math.cos(angle) * segmentLength * i;
-      const baseY = startY + Math.sin(angle) * segmentLength * i;
-      
-      // Enhanced zigzag effect with variable intensity
-      const maxDeviation = (40 - thickness * 5) * (1 - segmentProgress * 0.3); // Thicker bolts = less zigzag
-      const deviationX = (Math.random() - 0.5) * maxDeviation;
-      const deviationY = (Math.random() - 0.5) * maxDeviation;
-      
-      currentX = baseX + deviationX;
-      currentY = baseY + deviationY;
-      
-      this.ctx.lineTo(currentX, currentY);
-      
-      // Enhanced branching with more probability
-      if (Math.random() < 0.4 && i > 2 && i < segments - 2) {
-        const branchAngle = angle + (Math.random() - 0.5) * Math.PI * 0.8;
-        const branchLength = length * (0.4 + Math.random() * 0.5);
-        
-        // Draw branch
-        this.ctx.stroke();
-        this.drawEnhancedLightningBranch(currentX, currentY, branchAngle, branchLength, progress, thickness - 1);
-        this.ctx.beginPath();
-        this.ctx.moveTo(currentX, currentY);
-        
-        // Add secondary branches
-        if (Math.random() < 0.3) {
-          const secondBranchAngle = angle + (Math.random() - 0.5) * Math.PI * 0.6;
-          const secondBranchLength = length * (0.2 + Math.random() * 0.3);
-          this.drawEnhancedLightningBranch(currentX, currentY, secondBranchAngle, secondBranchLength, progress, Math.max(1, thickness - 2));
-        }
-      }
-    }
-    
-    this.ctx.stroke();
-  }
-
-  drawLightningBolt(startX, startY, angle, length, progress) {
-    // Legacy method - redirect to massive lightning bolt
-    this.drawMassiveLightningBolt(startX, startY, angle, length, progress, 3);
-  }
-
-  drawEnhancedLightningBranch(startX, startY, angle, length, progress, thickness) {
-    const branchSegments = 4 + Math.floor(Math.random() * 4);
-    const segmentLength = length / branchSegments;
-    
-    this.ctx.beginPath();
-    this.ctx.moveTo(startX, startY);
-    
-    for (let i = 1; i <= branchSegments; i++) {
-      const segmentProgress = i / branchSegments;
-      const animationProgress = Math.min(1, progress * 1.8);
-      
-      if (segmentProgress > animationProgress) break;
-      
-      const baseX = startX + Math.cos(angle) * segmentLength * i;
-      const baseY = startY + Math.sin(angle) * segmentLength * i;
-      
-      const deviationIntensity = 25 - thickness * 3; // Thicker branches = less deviation
-      const deviationX = (Math.random() - 0.5) * deviationIntensity;
-      const deviationY = (Math.random() - 0.5) * deviationIntensity;
-      
-      this.ctx.lineTo(baseX + deviationX, baseY + deviationY);
-    }
-    
-    this.ctx.stroke();
-  }
-
-  drawLightningBranch(startX, startY, angle, length, progress) {
-    // Legacy method - redirect to enhanced branch
-    this.drawEnhancedLightningBranch(startX, startY, angle, length, progress, 2);
-  }
-
-  drawEnhancedShockRipples(centerX, centerY, maxRadius, progress, opacity) {
-    const numRipples = 8; // More ripples for dramatic effect
-    const rippleColors = ["#FFFFFF", "#00FFFF", "#FFD700", "#FF6B35", "#FF4444"];
-    
-    for (let i = 0; i < numRipples; i++) {
-      const rippleDelay = i * 0.08; // Faster succession
-      const rippleProgress = Math.max(0, (progress - rippleDelay) / (1 - rippleDelay));
-      
-      if (rippleProgress > 0) {
-        const rippleRadius = maxRadius * Math.pow(rippleProgress, 0.8); // Slightly curved expansion
-        const rippleOpacity = opacity * Math.pow(1 - rippleProgress, 0.5) * 0.6; // Better visibility
-        
-        this.ctx.globalAlpha = rippleOpacity;
-        this.ctx.strokeStyle = rippleColors[i % rippleColors.length];
-        this.ctx.lineWidth = Math.max(2, 12 - i * 1.2); // Thicker lines
-        
-        // Alternating dash patterns for variety
-        if (i % 3 === 0) {
-          this.ctx.setLineDash([25, 15]); // Long dashes
-        } else if (i % 3 === 1) {
-          this.ctx.setLineDash([15, 10]); // Medium dashes
-        } else {
-          this.ctx.setLineDash([8, 8]); // Short dashes
-        }
-        
-        this.ctx.beginPath();
-        this.ctx.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
-        this.ctx.stroke();
-      }
-    }
-    
-    this.ctx.setLineDash([]); // Reset line dash
-  }
-
-  drawShockRipples(centerX, centerY, maxRadius, progress, opacity) {
-    // Legacy method - redirect to enhanced version
-    this.drawEnhancedShockRipples(centerX, centerY, maxRadius, progress, opacity);
-  }
-
-  drawParticleDebris(centerX, centerY, maxRadius, progress, opacity) {
-    // Initialize debris particles if not already done
-    if (!this.explosionDebrisParticles) {
-      this.explosionDebrisParticles = [];
-      
-      // Create 200+ particles
-      for (let i = 0; i < 250; i++) {
-        this.explosionDebrisParticles.push({
-          angle: Math.random() * Math.PI * 2,
-          speed: 150 + Math.random() * 400, // Variable speeds
-          size: 2 + Math.random() * 6,
-          color: this.getRandomExplosionColor(),
-          life: 0.6 + Math.random() * 0.4,
-          trailLength: 3 + Math.random() * 8,
-          rotationSpeed: (Math.random() - 0.5) * 0.3
-        });
-      }
-    }
-    
-    const debrisProgress = Math.max(0, (progress - 0.1) / 0.9); // Start after 10%
-    
-    this.explosionDebrisParticles.forEach(particle => {
-      if (debrisProgress < particle.life) {
-        const particleOpacity = opacity * (1 - debrisProgress / particle.life) * 0.8;
-        const distance = particle.speed * debrisProgress * 0.003; // Scale factor
-        
-        const currentX = centerX + Math.cos(particle.angle) * distance;
-        const currentY = centerY + Math.sin(particle.angle) * distance;
-        
-        // Draw particle with trail effect
-        this.ctx.globalAlpha = particleOpacity;
-        this.ctx.fillStyle = particle.color;
-        
-        // Main particle
-        this.ctx.beginPath();
-        this.ctx.arc(currentX, currentY, particle.size, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // Trail effect
-        const trailSteps = Math.floor(particle.trailLength);
-        for (let t = 1; t <= trailSteps; t++) {
-          const trailProgress = t / trailSteps;
-          const trailDistance = distance - (particle.speed * 0.001 * t);
-          
-          if (trailDistance > 0) {
-            const trailX = centerX + Math.cos(particle.angle) * trailDistance;
-            const trailY = centerY + Math.sin(particle.angle) * trailDistance;
-            
-            this.ctx.globalAlpha = particleOpacity * (1 - trailProgress) * 0.5;
-            this.ctx.beginPath();
-            this.ctx.arc(trailX, trailY, particle.size * (1 - trailProgress * 0.7), 0, Math.PI * 2);
-            this.ctx.fill();
-          }
-        }
-      }
-    });
-    
-    // Clean up particles when explosion is done
-    if (progress >= 0.95) {
-      this.explosionDebrisParticles = null;
-    }
-  }
-
-  getRandomExplosionColor() {
-    const colors = ["#FFFFFF", "#00FFFF", "#FFD700", "#FF6B35", "#FF4444", "#FFAA00"];
-    return colors[Math.floor(Math.random() * colors.length)];
-  }
-
-  drawUI() {
+  private drawUI(): void {
     // Draw game boundaries
     this.ctx.strokeStyle = "#333";
     this.ctx.lineWidth = 2;
     this.ctx.strokeRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  formatTime(milliseconds) {
+  public formatTime(milliseconds: number): string {
     const seconds = Math.ceil(milliseconds / 1000);
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -1444,7 +985,7 @@ class Renderer {
   }
 
   // Enhanced network quality tracking methods
-  adaptInterpolationTime() {
+  private adaptInterpolationTime(): void {
     if (this.networkJitterBuffer.length < 3) return;
 
     // Calculate network variance
@@ -1467,7 +1008,7 @@ class Renderer {
     );
   }
 
-  updateNetworkMetrics(currentTime) {
+  private updateNetworkMetrics(currentTime: number): void {
     // Track packet arrival timing for jitter calculation
     if (this.lastServerUpdate > 0) {
       const timeDiff = currentTime - this.lastServerUpdate;
@@ -1492,7 +1033,7 @@ class Renderer {
     }
   }
 
-  adjustInterpolationBuffer() {
+  private adjustInterpolationBuffer(): void {
     if (!this.networkMetrics) return;
     
     const stability = this.networkMetrics.stabilityScore || 1.0;
@@ -1507,6 +1048,3 @@ class Renderer {
     // Medium stability uses base buffer time
   }
 }
-
-// Global renderer instance (will be initialized in game.js)
-let renderer;

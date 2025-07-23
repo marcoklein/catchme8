@@ -552,11 +552,11 @@ class GameState {
     // Deactivate the stun orb
     stunOrb.active = false;
 
-    // Auto-activate stun pulse only for IT players
+    // Create explosion effect only for IT players
     if (player.isIt) {
       player.startStunPulse();
-      // Execute immediate stun pulse effect
-      const affectedPlayers = this.executeStunPulse(player);
+      // Execute explosion at the stun orb location instead of around the player
+      const affectedPlayers = this.executeStunOrbExplosion(stunOrb, player);
 
       // Set respawn timer
       this.stunOrbRespawnTimer.set(
@@ -594,6 +594,44 @@ class GameState {
           name: player.name,
         });
       }
+    }
+
+    return affectedPlayers;
+  }
+
+  executeStunOrbExplosion(stunOrb, itPlayer) {
+    // Screen-wide explosion - covers entire game field regardless of distance  
+    const explosionRadius = Math.sqrt(this.gameWidth * this.gameWidth + this.gameHeight * this.gameHeight); // Diagonal coverage
+    const affectedPlayers = [];
+
+    console.log(`Screen-wide stun orb explosion at (${stunOrb.x}, ${stunOrb.y}) affecting entire game field`);
+
+    for (const [playerId, player] of this.players) {
+      if (player.id === itPlayer.id) continue; // Don't stun the IT player who collected it
+
+      // Calculate distance from player to the stun orb explosion center for duration scaling
+      const dx = player.x - stunOrb.x;
+      const dy = player.y - stunOrb.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Distance-based stun duration: closer players get shorter stun, farther players get longer stun
+      let stunDuration;
+      if (distance <= 100) {
+        stunDuration = 3000; // Close range: 3.0 seconds
+      } else if (distance <= 200) {
+        stunDuration = 4000; // Medium range: 4.0 seconds  
+      } else {
+        stunDuration = 5000; // Far range: 5.0 seconds
+      }
+
+      player.stun(stunDuration);
+      affectedPlayers.push({
+        id: player.id,
+        name: player.name,
+        distance: Math.round(distance),
+        stunDuration: stunDuration
+      });
+      console.log(`Player ${player.name} stunned for ${stunDuration}ms at distance ${Math.round(distance)}px`);
     }
 
     return affectedPlayers;

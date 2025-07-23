@@ -1,0 +1,4 @@
+/* Placeholder for CSS imports */
+/* This will import the existing CSS files */
+@import url('../../../client/css/style.css');
+@import url('../../../client/css/debug-stats.css');

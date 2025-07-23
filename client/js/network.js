@@ -51,11 +51,37 @@ class NetworkManager {
         );
       } else if (data.stunActivated) {
         this.showMessage(
-          `${data.playerName} collected stun orb - pulse activated!`,
+          `💥 ${data.playerName} triggered stun orb explosion!`,
           "danger"
         );
       } else {
         this.showMessage(`${data.playerName} collected stun orb!`, "info");
+      }
+    });
+
+    this.socket.on("stunOrbExplosion", (data) => {
+      console.log("RECEIVED stunOrbExplosion event:", data);
+      
+      // Trigger visual explosion effect at the specified location
+      const rendererInstance = window.renderer || renderer;
+      if (rendererInstance) {
+        console.log("Calling triggerExplosionEffect on renderer");
+        rendererInstance.triggerExplosionEffect(
+          data.explosionX,
+          data.explosionY,
+          data.explosionRadius
+        );
+      } else {
+        console.error("No renderer available! window.renderer:", !!window.renderer, "global renderer:", typeof renderer !== 'undefined');
+      }
+      
+      // Show detailed message about affected players
+      if (data.affectedPlayers.length > 0) {
+        const playerNames = data.affectedPlayers.map(p => p.name).join(', ');
+        this.showMessage(
+          `⚡ Explosion stunned: ${playerNames}`,
+          "explosion"
+        );
       }
     });
 

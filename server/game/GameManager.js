@@ -554,10 +554,14 @@ class GameManager {
     // Check for stun orb collection
     const collectedStunOrb = this.gameState.checkStunOrbCollision(player);
     if (collectedStunOrb) {
+      console.log(`Player ${player.name} collected stun orb, isIt: ${player.isIt}`);
+      
       const affectedPlayers = this.gameState.collectStunOrb(
         player,
         collectedStunOrb
       );
+
+      console.log(`Affected players: ${affectedPlayers.length}`);
 
       this.io.to("game").emit("stunOrbCollected", {
         playerId: player.id,
@@ -566,17 +570,23 @@ class GameManager {
         onlyForIt: !player.isIt,
         stunActivated: player.isIt,
         affectedPlayers: affectedPlayers,
+        explosionCenter: { x: collectedStunOrb.x, y: collectedStunOrb.y } // Send explosion location
       });
 
-      // If stun was activated, notify about the pulse
-      if (player.isIt && affectedPlayers.length > 0) {
-        this.io.to("game").emit("stunPulseActivated", {
+      // If stun was activated by IT player, notify about the explosion
+      if (player.isIt) {
+        console.log(`IT player collected stun orb, emitting explosion event`);
+        this.io.to("game").emit("stunOrbExplosion", {
           itPlayerId: player.id,
           itPlayerName: player.name,
-          stunRadius: 80,
-          pulseDuration: 3000,
+          explosionX: collectedStunOrb.x,
+          explosionY: collectedStunOrb.y,
+          explosionRadius: Math.sqrt(800 * 800 + 600 * 600), // Screen-wide coverage
+          stunDuration: 1000,
           affectedPlayers: affectedPlayers,
         });
+      } else {
+        console.log(`Non-IT player collected stun orb, no explosion`);
       }
     }
 
