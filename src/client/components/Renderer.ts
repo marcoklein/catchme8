@@ -1,4 +1,4 @@
-import { GameStateData, PlayerState, Obstacle, PowerUp, Star, StunOrb, Position } from '@shared/types';
+import { GameStateData, PlayerState, Obstacle, PowerUp, Star, StunOrb, Position, SightUtils } from '@shared/types';
 
 interface ExplosionEffect {
   x: number;
@@ -292,40 +292,88 @@ export class Renderer {
     const renderStart = performance.now();
     const currentTime = Date.now();
 
+    // Get current player for sight calculations
+    const myPlayer = this.gameState.players.find(p => p.id === this.myPlayerId);
+
     // Clear canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Draw background pattern
-    this.drawBackground();
+    // Apply sight-based rendering if we have a player
+    if (myPlayer) {
+      // Step 1: Fill entire canvas with dark background
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Draw obstacles
-    this.drawObstacles();
+      // Step 2: Clear the sight circle area completely (crystal clear)
+      this.ctx.globalCompositeOperation = 'destination-out';
+      this.ctx.beginPath();
+      this.ctx.arc(myPlayer.x, myPlayer.y, myPlayer.sightRange, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.globalCompositeOperation = 'source-over';
 
-    // Draw power-ups
-    this.drawPowerUps();
+      // Step 3: Draw background pattern only in the cleared area
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.arc(myPlayer.x, myPlayer.y, myPlayer.sightRange, 0, Math.PI * 2);
+      this.ctx.clip();
+      this.drawBackground();
+      this.ctx.restore();
 
-    // Draw stars
-    this.drawStars();
+      // Step 4: Draw all game objects (they'll only appear in the clear circle)
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.arc(myPlayer.x, myPlayer.y, myPlayer.sightRange, 0, Math.PI * 2);
+      this.ctx.clip();
 
-    // Draw stun orbs
-    this.drawStunOrbs();
+      // Draw obstacles (only visible ones)
+      this.drawObstacles(myPlayer);
 
-    // Draw all players with interpolation
-    this.gameState.players.forEach((player) => {
-      this.drawPlayer(player, currentTime);
-    });
+      // Draw power-ups (only visible ones)
+      this.drawPowerUps(myPlayer);
 
-    // Draw stun pulse effects for IT players
-    this.gameState.players.forEach((player) => {
-      if (player.isIt && (player as any).isPerformingStunPulse) {
-        this.drawStunPulseEffect(player);
-      }
-    });
+      // Draw stars (only visible ones)
+      this.drawStars(myPlayer);
 
-    // Draw explosion effects
-    this.drawExplosionEffects(currentTime);
+      // Draw stun orbs (only visible ones)
+      this.drawStunOrbs(myPlayer);
 
-    // Draw UI elements
+      // Draw all players with interpolation (only visible ones)
+      this.gameState.players.forEach((player) => {
+        if (this.isPlayerVisible(player, myPlayer)) {
+          this.drawPlayer(player, currentTime);
+        }
+      });
+
+      // Draw stun pulse effects for IT players (only visible ones)
+      this.gameState.players.forEach((player) => {
+        if (player.isIt && (player as any).isPerformingStunPulse && this.isPlayerVisible(player, myPlayer)) {
+          this.drawStunPulseEffect(player);
+        }
+      });
+
+      // Draw explosion effects (only visible ones)
+      this.drawExplosionEffects(currentTime, myPlayer);
+
+      this.ctx.restore(); // Remove clipping
+    } else {
+      // Fallback: draw everything if no player found
+      this.drawBackground();
+      this.drawObstacles();
+      this.drawPowerUps();
+      this.drawStars();
+      this.drawStunOrbs();
+      this.gameState.players.forEach((player) => {
+        this.drawPlayer(player, currentTime);
+      });
+      this.gameState.players.forEach((player) => {
+        if (player.isIt && (player as any).isPerformingStunPulse) {
+          this.drawStunPulseEffect(player);
+        }
+      });
+      this.drawExplosionEffects(currentTime);
+    }
+
+    // Draw UI elements (always visible)
     this.drawUI();
 
     // Draw virtual joystick for mobile devices
@@ -361,7 +409,7 @@ export class Renderer {
     this.ctx.globalAlpha = 1;
   }
 
-  private drawObstacles(): void {
+  private drawObstacles(viewer?: PlayerState): void {
     if (!this.gameState?.obstacles) return;
 
     this.ctx.save();
@@ -370,6 +418,11 @@ export class Renderer {
     this.ctx.lineWidth = 2;
 
     this.gameState.obstacles.forEach((obstacle: Obstacle) => {
+      // Check visibility if viewer is provided
+      if (viewer && !this.isObstacleVisible(obstacle, viewer)) {
+        return;
+      }
+
       if (obstacle.type === "rectangle" && obstacle.width && obstacle.height) {
         // Draw rectangle obstacle
         const x = obstacle.x - obstacle.width / 2;
@@ -414,13 +467,18 @@ export class Renderer {
     this.ctx.restore();
   }
 
-  private drawPowerUps(): void {
+  private drawPowerUps(viewer?: PlayerState): void {
     if (!this.gameState?.powerUps) return;
 
     this.ctx.save();
 
     this.gameState.powerUps.forEach((powerUp: PowerUp) => {
       if (!powerUp.active) return;
+      
+      // Check visibility if viewer is provided
+      if (viewer && !this.isPowerUpVisible(powerUp, viewer)) {
+        return;
+      }
 
       // Create a pulsing effect
       const time = Date.now() * 0.005;
@@ -481,13 +539,18 @@ export class Renderer {
     this.ctx.restore();
   }
 
-  private drawStars(): void {
+  private drawStars(viewer?: PlayerState): void {
     if (!this.gameState?.stars) return;
 
     this.ctx.save();
 
     this.gameState.stars.forEach((star: Star) => {
       if (!star.active) return;
+      
+      // Check visibility if viewer is provided
+      if (viewer && !this.isStarVisible(star, viewer)) {
+        return;
+      }
 
       // Create a pulsing glow effect
       const time = Date.now() * 0.003;
@@ -554,13 +617,18 @@ export class Renderer {
     this.ctx.restore();
   }
 
-  private drawStunOrbs(): void {
+  private drawStunOrbs(viewer?: PlayerState): void {
     if (!this.gameState?.stunOrbs) return;
 
     this.ctx.save();
 
     this.gameState.stunOrbs.forEach((stunOrb: StunOrb) => {
       if (!stunOrb.active) return;
+      
+      // Check visibility if viewer is provided
+      if (viewer && !this.isStunOrbVisible(stunOrb, viewer)) {
+        return;
+      }
 
       // Create electrical animation
       const time = Date.now() * 0.01;
@@ -870,9 +938,15 @@ export class Renderer {
     }
   }
 
-  private drawExplosionEffects(currentTime: number): void {
+  private drawExplosionEffects(currentTime: number, viewer?: PlayerState): void {
     // Filter out expired explosions and draw active ones
     this.explosionEffects = this.explosionEffects.filter(explosion => {
+      // Check visibility if viewer is provided
+      if (viewer && !this.isExplosionVisible(explosion, viewer)) {
+        const elapsed = currentTime - explosion.startTime;
+        const progress = elapsed / explosion.duration;
+        return progress < 1; // Keep in list but don't draw
+      }
       const elapsed = currentTime - explosion.startTime;
       const progress = elapsed / explosion.duration;
       
@@ -1047,4 +1121,39 @@ export class Renderer {
     }
     // Medium stability uses base buffer time
   }
+
+  // Visibility helper methods for circular sight system
+  private isPlayerVisible(player: PlayerState, viewer: PlayerState): boolean {
+    // Always show the viewer themselves
+    if (player.id === viewer.id) return true;
+    
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, player.x, player.y);
+    return result.isVisible;
+  }
+
+  private isObstacleVisible(obstacle: Obstacle, viewer: PlayerState): boolean {
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, obstacle.x, obstacle.y);
+    return result.isVisible;
+  }
+
+  private isPowerUpVisible(powerUp: PowerUp, viewer: PlayerState): boolean {
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, powerUp.x, powerUp.y);
+    return result.isVisible;
+  }
+
+  private isStarVisible(star: Star, viewer: PlayerState): boolean {
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, star.x, star.y);
+    return result.isVisible;
+  }
+
+  private isStunOrbVisible(stunOrb: StunOrb, viewer: PlayerState): boolean {
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, stunOrb.x, stunOrb.y);
+    return result.isVisible;
+  }
+
+  private isExplosionVisible(explosion: ExplosionEffect, viewer: PlayerState): boolean {
+    const result = SightUtils.isInSightRange(viewer.x, viewer.y, viewer.sightRange, explosion.x, explosion.y);
+    return result.isVisible;
+  }
+
 }

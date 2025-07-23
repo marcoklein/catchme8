@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### TypeScript Development (Primary)
 - `npm run dev` - Start TypeScript development with hot reloading (server + client)
+- `PORT=3033 npm run dev` - Start development servers on custom ports (server: 3033, client: 3034)
 - `npm run dev:server` - Start TypeScript server development mode only
 - `npm run dev:client` - Start TypeScript client development mode only
 - `npm run build` - Build complete TypeScript project (server + client)
@@ -15,6 +16,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run lint` - Run ESLint on TypeScript code
 - `npm run lint:fix` - Run ESLint with auto-fix on TypeScript code
 - `npm run type-check` - Run TypeScript type checking without compilation
+
+#### Port Configuration
+- **Default ports**: Server (3000), Client dev server (3001)  
+- **Custom ports**: Set `PORT` environment variable - client will auto-use PORT+1
+- **Manual override**: Set `CLIENT_PORT` environment variable for specific client port
+- **Examples**:
+  - `PORT=3033 npm run dev` → Server: 3033, Client: 3034
+  - `PORT=8000 CLIENT_PORT=9000 npm run dev` → Server: 8000, Client: 9000
 
 ### Legacy JavaScript (Deprecated)
 - `npm run start:legacy` - Start legacy JavaScript server

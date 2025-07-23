@@ -87,6 +87,10 @@ export class GameState {
     return this.players.size;
   }
 
+  public getPlayers(): Map<string, Player> {
+    return this.players;
+  }
+
   public forEachPlayer(callback: (player: Player, playerId: string) => void): void {
     this.players.forEach(callback);
   }

@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { ServerToClientEvents, ClientToServerEvents, InterServerEvents, SocketData, InputState } from '@shared/types';
 import { GameState } from './GameState';
 import { Player } from './Player';
+import { AIPlayer } from './AIPlayer';
 import { MovementEngine } from './MovementEngine';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -23,6 +24,10 @@ interface BufferedInput extends InputState {
 export class GameManager {
   private gameState: GameState;
   private io: TypedServer;
+  
+  // Game loop control
+  private running: boolean = true;
+  private gameLoopTimeout: NodeJS.Timeout | null = null;
   
   // Game loop timing
   private lastUpdate = Date.now();
@@ -48,10 +53,19 @@ export class GameManager {
   private lastInactiveCheck = Date.now();
   private readonly inactiveCheckInterval = 5000;
 
+  // AI management
+  private lastAIUpdate = Date.now();
+  private readonly aiUpdateInterval = 1000 / 10; // Update AI 10 times per second
+
   constructor(io: TypedServer) {
     this.io = io;
     this.gameState = new GameState();
     this.startGameLoop();
+    
+    // Add initial AI player for testing
+    setTimeout(() => {
+      this.addAIPlayer('Bot Alpha');
+    }, 1000);
   }
 
   public handlePlayerJoin(socket: TypedSocket, playerName: string): void {
@@ -175,6 +189,98 @@ export class GameManager {
     return this.gameState.getPlayerCount();
   }
 
+  public shutdown(): void {
+    console.log('GameManager: Shutting down game loop...');
+    this.running = false;
+    
+    // Clear any pending timeout
+    if (this.gameLoopTimeout) {
+      clearTimeout(this.gameLoopTimeout);
+      this.gameLoopTimeout = null;
+    }
+    
+    // Clean up all input tracking and buffers
+    this.playerInputStates.clear();
+    this.inputTracking = {};
+    this.inputBuffer.clear();
+    
+    console.log('GameManager: Shutdown complete');
+  }
+
+  // AI Management Methods
+  public addAIPlayer(name?: string): boolean {
+    if (this.gameState.getPlayerCount() >= 8) { // Max players limit
+      return false;
+    }
+
+    // Generate AI name if not provided
+    if (!name) {
+      const aiNames = ['Bot Alpha', 'Bot Beta', 'Bot Gamma', 'Bot Delta', 'Bot Echo'];
+      const usedNames = Array.from(this.gameState.getPlayers().values()).map(p => p.name);
+      const availableNames = aiNames.filter(n => !usedNames.includes(n));
+      name = availableNames.length > 0 ? availableNames[0] : `Bot ${Date.now()}`;
+    }
+
+    // Find a safe spawn position
+    const spawnPos = this.gameState.findSafeSpawnPosition();
+
+    // Create AI player with unique ID
+    const aiId = `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const aiPlayer = new AIPlayer(aiId, name, spawnPos.x, spawnPos.y);
+
+    if (this.gameState.addPlayer(aiPlayer)) {
+      console.log(`AI Player ${name} (${aiId}) joined the game`);
+      this.broadcastGameState();
+      return true;
+    }
+
+    return false;
+  }
+
+  private shouldAddAIPlayer(): boolean {
+    const players = this.gameState.getPlayers();
+    const humanPlayers = Array.from(players.values()).filter(p => !p.isAI);
+    const aiPlayers = Array.from(players.values()).filter(p => p.isAI);
+
+    // Add AI if we have human players but not enough total players for a good game
+    return humanPlayers.length > 0 && humanPlayers.length + aiPlayers.length < 3 && aiPlayers.length < 2;
+  }
+
+  private updateAIPlayers(): void {
+    const now = Date.now();
+    if (now - this.lastAIUpdate < this.aiUpdateInterval) {
+      return;
+    }
+
+    this.lastAIUpdate = now;
+
+    // Update each AI player
+    this.gameState.forEachPlayer((player) => {
+      if (player instanceof AIPlayer) {
+        // Get AI decision and movement
+        const movement = player.makeDecision(this.gameState.toJSON());
+
+        // Apply movement if valid
+        if (movement.dx !== 0 || movement.dy !== 0) {
+          const result = MovementEngine.validateMovement(
+            player,
+            movement.dx,
+            movement.dy,
+            this.gameState.gameWidth,
+            this.gameState.gameHeight,
+            this.gameState.obstacles
+          );
+
+          if (result.isValid) {
+            player.x = result.x;
+            player.y = result.y;
+            player.lastMovement = now;
+          }
+        }
+      }
+    });
+  }
+
   private bufferInput(socketId: string, inputState: InputState, timestamp: number): void {
     if (!this.inputBuffer.has(socketId)) {
       this.inputBuffer.set(socketId, []);
@@ -195,6 +301,12 @@ export class GameManager {
   }
 
   private gameLoop(): void {
+    // Check if we should continue running
+    if (!this.running) {
+      console.log('GameManager: Game loop stopped');
+      return;
+    }
+
     const now = Date.now();
     const deltaTime = now - this.lastUpdate;
 
@@ -203,6 +315,14 @@ export class GameManager {
       if (now - this.lastInactiveCheck >= this.inactiveCheckInterval) {
         this.removeInactivePlayers(now);
         this.lastInactiveCheck = now;
+      }
+
+      // Update AI players
+      this.updateAIPlayers();
+
+      // Check if we should add AI players
+      if (this.shouldAddAIPlayer()) {
+        this.addAIPlayer();
       }
 
       // Ensure there's always a player who is "it"
@@ -229,8 +349,10 @@ export class GameManager {
       this.lastUpdate = now;
     }
 
-    // Continue the game loop
-    setTimeout(() => this.gameLoop(), 16); // ~60 FPS
+    // Continue the game loop only if still running
+    if (this.running) {
+      this.gameLoopTimeout = setTimeout(() => this.gameLoop(), 16); // ~60 FPS
+    }
   }
 
   private processPlayerMovements(deltaTime: number): void {

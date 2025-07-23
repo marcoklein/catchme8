@@ -13,6 +13,7 @@ export class Player {
   public readonly radius: number = 15;
   public readonly speed: number = 100;
   public readonly color: string;
+  public readonly sightRange: number = 200; // Circular sight radius
   
   // IT player tracking
   public becameItTime?: number;
@@ -196,7 +197,8 @@ export class Player {
       color: this.color,
       becameItTime: this.becameItTime,
       timeAsIt: this.timeAsIt,
-      lastMovement: this.lastMovement
+      lastMovement: this.lastMovement,
+      sightRange: this.sightRange
     };
   }
 

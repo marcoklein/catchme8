@@ -27,6 +27,8 @@ export interface PlayerState {
   becameItTime?: number;
   timeAsIt?: number;
   lastMovement?: number;
+  // Circular sight properties (like light radius)
+  sightRange: number;        // Circular sight radius in pixels
 }
 
 // Game world objects
@@ -113,3 +115,31 @@ export interface AIDecision {
 }
 
 export type AIBehaviorState = 'aggressive' | 'defensive' | 'opportunistic' | 'random';
+
+// Visibility system types
+export interface VisibilityResult {
+  isVisible: boolean;
+  distance?: number;
+  angle?: number;
+}
+
+// Utility functions for circular sight calculations
+export const SightUtils = {
+  // Check if a point is within circular sight range
+  isInSightRange: (
+    viewerX: number, viewerY: number, viewerSightRange: number,
+    targetX: number, targetY: number
+  ): VisibilityResult => {
+    const distance = Math.sqrt(Math.pow(targetX - viewerX, 2) + Math.pow(targetY - viewerY, 2));
+    
+    return {
+      isVisible: distance <= viewerSightRange,
+      distance
+    };
+  },
+  
+  // Calculate distance between two points
+  getDistance: (x1: number, y1: number, x2: number, y2: number): number => {
+    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+  }
+};

@@ -37,13 +37,13 @@ export class Game {
     needsCorrection: false
   };
   
-  // Adaptive correction thresholds
-  private baseCorrectionThreshold = 25;
-  private maxCorrectionThreshold = 50;
+  // Adaptive correction thresholds (matched to legacy client)
+  private baseCorrectionThreshold = 15;
+  private maxCorrectionThreshold = 30;
   private lastCorrectionTime = 0;
-  private correctionCooldown = 500;
+  private correctionCooldown = 200;
   private consecutiveCorrections = 0;
-  private maxConsecutiveCorrections = 2;
+  private maxConsecutiveCorrections = 5;
   private correctionsDisabled = false;
   private correctionDisableTimeout = 0;
 
@@ -208,7 +208,7 @@ export class Game {
               const timeSinceServerUpdate = now - this.lastServerUpdate;
               
               if (timeSinceServerUpdate < 100) { // Recent server update
-                console.log(`Starting correction: error=${distanceError.toFixed(1)}px`);
+                console.log(`Starting correction: error=${distanceError.toFixed(1)}px, threshold=${adaptiveThreshold.toFixed(1)}px, consecutive=${this.consecutiveCorrections}`);
                 this.startCorrection(serverPlayer);
                 this.lastCorrectionTime = now;
                 this.consecutiveCorrections++;
@@ -465,6 +465,61 @@ export class Game {
     return Math.min(threshold, this.maxCorrectionThreshold);
   }
 
+  private applyClientSidePrediction(inputState: InputState, deltaTime: number): void {
+    if (!this.localPlayerState) return;
+
+    let dx = 0;
+    let dy = 0;
+
+    // Handle keyboard input (same as server)
+    if (inputState.up) dy -= 1;
+    if (inputState.down) dy += 1;
+    if (inputState.left) dx -= 1;
+    if (inputState.right) dx += 1;
+
+    // Handle touch input (overrides keyboard, same as server)
+    if (inputState.isTouchActive && inputState.touchX !== undefined && inputState.touchY !== undefined) {
+      dx = inputState.touchX;
+      dy = inputState.touchY;
+    }
+
+    // Normalize diagonal movement (same as server)
+    const magnitude = Math.sqrt(dx * dx + dy * dy);
+    if (magnitude > 1) {
+      dx /= magnitude;
+      dy /= magnitude;
+    }
+
+    // Apply speed and time scaling (same as server)
+    const currentSpeed = this.localPlayerState.isIt ? this.localPlayerState.speed * 1.3 : this.localPlayerState.speed;
+    const moveDistance = currentSpeed * (deltaTime / 1000);
+
+    dx *= moveDistance;
+    dy *= moveDistance;
+
+    // Apply movement with bounds checking (using actual game dimensions)
+    const gameWidth = this.gameState?.gameWidth || 800;
+    const gameHeight = this.gameState?.gameHeight || 600;
+    const newX = Math.max(this.localPlayerState.radius, 
+                         Math.min(gameWidth - this.localPlayerState.radius,
+                                 this.localPlayerState.x + dx));
+    const newY = Math.max(this.localPlayerState.radius,
+                         Math.min(gameHeight - this.localPlayerState.radius,
+                                 this.localPlayerState.y + dy));
+
+    // Update predicted position
+    this.localPlayerState.x = newX;
+    this.localPlayerState.y = newY;
+    this.localPlayerState.lastUpdate = Date.now();
+
+    // Store predicted state for correction comparison
+    if (this.predictedPlayerState) {
+      this.predictedPlayerState.x = newX;
+      this.predictedPlayerState.y = newY;
+      this.predictedPlayerState.lastUpdate = Date.now();
+    }
+  }
+
   private gameLoop(): void {
     const now = Date.now();
     const deltaTime = now - this.lastUpdate;
@@ -476,6 +531,11 @@ export class Game {
       // Send input to server
       if (inputState && this.network.isConnected()) {
         this.network.sendInputState(inputState);
+      }
+
+      // Apply client-side prediction immediately
+      if (inputState && this.localPlayerState && !this.localPlayerState.isStunned) {
+        this.applyClientSidePrediction(inputState, deltaTime);
       }
     }
 

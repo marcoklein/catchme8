@@ -114,21 +114,32 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
+function gracefulShutdown(signal: string) {
+  console.log(`${signal} received, shutting down gracefully`);
+  
+  // First, stop the game loop
+  gameManager.shutdown();
+  
+  // Then close Socket.IO connections
+  io.close(() => {
+    console.log('Socket.IO connections closed');
+    
+    // Finally, close the HTTP server
+    server.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
   });
-});
+  
+  // Force exit after 10 seconds if graceful shutdown fails
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start server
 server.listen(PORT, () => {

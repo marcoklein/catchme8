@@ -34,7 +34,7 @@ module.exports = {
         publicPath: '/',
       }
     ],
-    port: 3001,
+    port: process.env.CLIENT_PORT || (parseInt(process.env.PORT || '3000') + 1),
     hot: true,
     open: false,
   },
