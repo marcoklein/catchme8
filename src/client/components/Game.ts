@@ -38,7 +38,7 @@ export class Game {
   };
   
   // Adaptive correction thresholds
-  private baseCorrectionThreshold = 15;
+  private baseCorrectionThreshold = 25;
   private maxCorrectionThreshold = 50;
   private lastCorrectionTime = 0;
   private correctionCooldown = 500;
