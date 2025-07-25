@@ -10,13 +10,14 @@ interface PersonalityTraits {
 
 export class AIPlayer extends Player {
   public lastDecisionTime: number = Date.now();
-  public readonly decisionInterval: number = 100; // Make decisions every 100ms
+  public readonly decisionInterval: number = 33; // Make decisions every 33ms (30 FPS)
   public targetPosition: { x: number; y: number } | null = null;
   public currentBehavior: AIBehaviorState = 'random';
   public personalityTraits: PersonalityTraits;
   public lastAIMovement: { dx: number; dy: number } = { dx: 0, dy: 0 };
   public stuckCounter: number = 0;
   public lastPosition: { x: number; y: number };
+  public readonly speed: number = 60; // Same slower speed as human players (30% of 200)
 
   constructor(id: string, name: string, x: number = 400, y: number = 300) {
     super(id, name, x, y, true); // true for isAI
@@ -48,13 +49,12 @@ export class AIPlayer extends Player {
       Math.pow(this.y - this.lastPosition.y, 2)
     );
 
-    if (distanceMoved < 2) {
+    if (distanceMoved < 5) {
       this.stuckCounter++;
     } else {
       this.stuckCounter = 0;
+      this.lastPosition = { x: this.x, y: this.y };
     }
-
-    this.lastPosition = { x: this.x, y: this.y };
 
     // Get AI decision
     const decision = this.decideAction(gameState);
@@ -141,17 +141,37 @@ export class AIPlayer extends Player {
   }
 
   private wanderDecision(): AIDecision {
-    // Random wandering with some intelligence to avoid edges
-    const margin = 100;
-    const targetX = margin + Math.random() * (800 - 2 * margin); // Assuming 800px width
-    const targetY = margin + Math.random() * (600 - 2 * margin); // Assuming 600px height
-
-    return {
-      targetX,
-      targetY,
-      priority: 'wander',
-      confidence: 0.3
-    };
+    // More dynamic wandering like legacy code
+    // 10% chance to change direction completely, otherwise continue in similar direction
+    if (Math.random() < 0.1 || this.stuckCounter > 5) {
+      // Generate new random direction
+      const angle = Math.random() * Math.PI * 2;
+      const wanderDistance = 100 + Math.random() * 200; // Random distance to wander
+      const targetX = Math.max(50, Math.min(750, this.x + Math.cos(angle) * wanderDistance));
+      const targetY = Math.max(50, Math.min(550, this.y + Math.sin(angle) * wanderDistance));
+      
+      return {
+        targetX,
+        targetY,
+        priority: 'wander',
+        confidence: 0.4
+      };
+    } else {
+      // Continue in roughly the same direction with small variations
+      const continuationX = this.x + this.lastAIMovement.dx * 50 + (Math.random() - 0.5) * 80;
+      const continuationY = this.y + this.lastAIMovement.dy * 50 + (Math.random() - 0.5) * 80;
+      
+      // Keep within bounds
+      const targetX = Math.max(50, Math.min(750, continuationX));
+      const targetY = Math.max(50, Math.min(550, continuationY));
+      
+      return {
+        targetX,
+        targetY,
+        priority: 'wander',
+        confidence: 0.3
+      };
+    }
   }
 
   private findNearbyPowerUp(gameState: GameStateData) {
@@ -194,39 +214,57 @@ export class AIPlayer extends Player {
   }
 
   private calculateMovement(decision: AIDecision): { dx: number; dy: number } {
-    const speed = this.speed / 60; // Convert to per-frame movement (assuming 60 FPS)
-    
     // Calculate direction to target
     const dx = decision.targetX - this.x;
     const dy = decision.targetY - this.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance < 5) {
-      // Very close to target, minimal movement
-      return { dx: 0, dy: 0 };
+      // Very close to target, use some random movement
+      return this.generateRandomMovement();
     }
 
-    // Normalize and apply speed
-    const normalizedDx = (dx / distance) * speed;
-    const normalizedDy = (dy / distance) * speed;
+    // Normalize movement to -1 to 1 range (like legacy code)
+    let normalizedDx = dx / distance;
+    let normalizedDy = dy / distance;
 
     // Add some randomness based on intelligence (lower intelligence = more random)
     const randomFactor = (1 - this.personalityTraits.intelligence) * 0.3;
-    const randomDx = (Math.random() - 0.5) * randomFactor * speed;
-    const randomDy = (Math.random() - 0.5) * randomFactor * speed;
+    const randomDx = (Math.random() - 0.5) * randomFactor;
+    const randomDy = (Math.random() - 0.5) * randomFactor;
+
+    normalizedDx += randomDx;
+    normalizedDy += randomDy;
 
     // Handle stuck situation
     if (this.stuckCounter > 10) {
-      // Add more randomness when stuck
-      const stuckRandomDx = (Math.random() - 0.5) * speed * 2;
-      const stuckRandomDy = (Math.random() - 0.5) * speed * 2;
       this.stuckCounter = 0;
-      return { dx: stuckRandomDx, dy: stuckRandomDy };
+      return this.generateRandomMovement();
+    }
+
+    // Apply confidence factor
+    const intensity = Math.max(0.5, decision.confidence);
+    normalizedDx *= intensity;
+    normalizedDy *= intensity;
+
+    // Final normalization to ensure magnitude <= 1
+    const finalMagnitude = Math.sqrt(normalizedDx * normalizedDx + normalizedDy * normalizedDy);
+    if (finalMagnitude > 1) {
+      normalizedDx /= finalMagnitude;
+      normalizedDy /= finalMagnitude;
     }
 
     return {
-      dx: normalizedDx + randomDx,
-      dy: normalizedDy + randomDy
+      dx: normalizedDx,
+      dy: normalizedDy
+    };
+  }
+
+  private generateRandomMovement(): { dx: number; dy: number } {
+    const angle = Math.random() * Math.PI * 2;
+    return {
+      dx: Math.cos(angle),
+      dy: Math.sin(angle)
     };
   }
 

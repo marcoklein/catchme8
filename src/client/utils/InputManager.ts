@@ -1,11 +1,5 @@
-import { InputState } from '@shared/types';
-
-// Declare TouchInputManager globally since it's defined elsewhere
-declare global {
-  interface Window {
-    input?: InputManager;
-  }
-}
+import { InputState } from "@shared/types";
+import { TouchInputManager } from "./TouchInputManager";
 
 export class InputManager {
   private keys: { [key: string]: boolean } = {};
@@ -20,16 +14,16 @@ export class InputManager {
     timestamp: 0,
   };
   private lastInputSent = Date.now();
-  private inputSendRate = 1000 / 30; // Send input 30 times per second
+  private inputSendRate = 1000 / 25; // Send input 25 times per second to avoid rate limiting
   private isMobile: boolean;
-  private touchInput?: any; // TouchInputManager type would need to be defined
+  private touchInput?: TouchInputManager;
 
   constructor() {
     this.isMobile = this.detectMobile();
 
     // Initialize touch input for mobile devices
-    if (this.isMobile && (window as any).TouchInputManager) {
-      this.touchInput = new (window as any).TouchInputManager();
+    if (this.isMobile) {
+      this.touchInput = new TouchInputManager();
     }
 
     this.setupEventListeners();
@@ -46,7 +40,11 @@ export class InputManager {
   private setupEventListeners(): void {
     document.addEventListener("keydown", (e) => {
       // Only handle game controls if we're not in an input field
-      if (e.target && (e.target as HTMLElement).tagName !== "INPUT" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
+      if (
+        e.target &&
+        (e.target as HTMLElement).tagName !== "INPUT" &&
+        (e.target as HTMLElement).tagName !== "TEXTAREA"
+      ) {
         this.keys[e.code] = true;
 
         // Only prevent default for game control keys
@@ -69,7 +67,11 @@ export class InputManager {
 
     document.addEventListener("keyup", (e) => {
       // Only handle game controls if we're not in an input field
-      if (e.target && (e.target as HTMLElement).tagName !== "INPUT" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
+      if (
+        e.target &&
+        (e.target as HTMLElement).tagName !== "INPUT" &&
+        (e.target as HTMLElement).tagName !== "TEXTAREA"
+      ) {
         this.keys[e.code] = false;
 
         // Only prevent default for game control keys
@@ -140,8 +142,10 @@ export class InputManager {
       newInputState.down !== this.inputState.down ||
       newInputState.left !== this.inputState.left ||
       newInputState.right !== this.inputState.right ||
-      Math.abs((newInputState.touchX || 0) - (this.inputState.touchX || 0)) > 0.01 ||
-      Math.abs((newInputState.touchY || 0) - (this.inputState.touchY || 0)) > 0.01 ||
+      Math.abs((newInputState.touchX || 0) - (this.inputState.touchX || 0)) >
+        0.01 ||
+      Math.abs((newInputState.touchY || 0) - (this.inputState.touchY || 0)) >
+        0.01 ||
       newInputState.isTouchActive !== this.inputState.isTouchActive
     );
   }

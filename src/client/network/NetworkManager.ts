@@ -16,7 +16,7 @@ export class NetworkManager {
   private setupEventListeners(): void {
     this.socket.on('connect', () => {
       this.connected = true;
-      console.log('Connected to server');
+      console.log('[NETWORK] Connected to server, socket ID:', this.socket.id);
     });
 
     this.socket.on('disconnect', () => {
@@ -34,9 +34,18 @@ export class NetworkManager {
     });
 
     this.socket.on('gameState', (gameState: GameStateData) => {
+      // Debug: Log all gameState events to see if we're receiving updates
+      const aiPlayers = gameState.players.filter(p => p.isAI);
+      if (aiPlayers.length > 0) {
+        console.log(`[NETWORK] Received gameState with ${aiPlayers.length} AI players:`, 
+                   aiPlayers.map(p => `${p.name}@(${p.x.toFixed(1)},${p.y.toFixed(1)})`));
+      }
+      
       const game = (window as any).game;
       if (game) {
         game.updateGameState(gameState);
+      } else {
+        console.warn('[NETWORK] No game instance found to update gameState');
       }
     });
 

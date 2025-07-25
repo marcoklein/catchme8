@@ -143,8 +143,6 @@ export class GameState {
   // Game world initialization
   private initializeObstacles(): void {
     this.obstacles.push(
-      // Center obstacle
-      { x: 400, y: 300, width: 80, height: 80, type: 'rectangle' },
       // Corner obstacles
       { x: 150, y: 150, width: 60, height: 60, type: 'rectangle' },
       { x: 650, y: 150, width: 60, height: 60, type: 'rectangle' },
@@ -174,7 +172,7 @@ export class GameState {
           id: `powerup_${index}`,
           x: pos.x,
           y: pos.y,
-          type: 'transparency',
+          type: Math.random() < 0.5 ? 'transparency' : 'size',
           radius: 15,
           active: true,
           duration: 5000,
@@ -263,6 +261,116 @@ export class GameState {
     });
   }
 
+  // Item collision detection methods
+  public checkPowerUpCollision(player: Player): PowerUp | null {
+    for (const powerUp of this.powerUps) {
+      if (!powerUp.active) continue;
+
+      const dx = player.x - powerUp.x;
+      const dy = player.y - powerUp.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < player.currentRadius + powerUp.radius) {
+        // Deactivate the power-up and schedule respawn
+        powerUp.active = false;
+        this.powerUpRespawnTimer.set(powerUp.id, Date.now() + powerUp.respawnTime);
+        return powerUp;
+      }
+    }
+    return null;
+  }
+
+  public checkStarCollision(player: Player): Star | null {
+    for (const star of this.stars) {
+      if (!star.active) continue;
+
+      const dx = player.x - star.x;
+      const dy = player.y - star.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < player.currentRadius + star.radius) {
+        // Deactivate the star and schedule respawn
+        star.active = false;
+        this.starRespawnTimer.set(star.id, Date.now() + this.starRespawnInterval);
+        return star;
+      }
+    }
+    return null;
+  }
+
+  public checkStunOrbCollision(player: Player): StunOrb | null {
+    for (const stunOrb of this.stunOrbs) {
+      if (!stunOrb.active) continue;
+
+      const dx = player.x - stunOrb.x;
+      const dy = player.y - stunOrb.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < player.currentRadius + stunOrb.radius) {
+        return stunOrb;
+      }
+    }
+    return null;
+  }
+
+  public collectStunOrb(player: Player, stunOrb: StunOrb): Array<{id: string; name: string; distance: number; stunDuration: number}> {
+    // Deactivate the stun orb
+    stunOrb.active = false;
+
+    // Create explosion effect only for IT players
+    if (player.isIt) {
+      // Execute explosion at the stun orb location instead of around the player
+      const affectedPlayers = this.executeStunOrbExplosion(stunOrb, player);
+
+      // Set respawn timer
+      this.stunOrbRespawnTimer.set(stunOrb.id, Date.now() + this.stunOrbRespawnInterval);
+
+      return affectedPlayers;
+    }
+
+    // Set respawn timer for non-IT collection
+    this.stunOrbRespawnTimer.set(stunOrb.id, Date.now() + this.stunOrbRespawnInterval);
+    return [];
+  }
+
+  public executeStunOrbExplosion(stunOrb: StunOrb, itPlayer: Player): Array<{id: string; name: string; distance: number; stunDuration: number}> {
+    // Screen-wide explosion - covers entire game field regardless of distance  
+    const explosionRadius = Math.sqrt(this.gameWidth * this.gameWidth + this.gameHeight * this.gameHeight); // Diagonal coverage
+    const affectedPlayers: Array<{id: string; name: string; distance: number; stunDuration: number}> = [];
+
+    console.log(`Screen-wide stun orb explosion at (${stunOrb.x}, ${stunOrb.y}) affecting entire game field`);
+
+    this.forEachPlayer((player) => {
+      if (player.id === itPlayer.id) return; // Don't stun the IT player who collected it
+
+      // Calculate distance from player to the stun orb explosion center for duration scaling
+      const dx = player.x - stunOrb.x;
+      const dy = player.y - stunOrb.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Distance-based stun duration: closer players get shorter stun, farther players get longer stun
+      let stunDuration: number;
+      if (distance <= 100) {
+        stunDuration = 3000; // Close range: 3.0 seconds
+      } else if (distance <= 200) {
+        stunDuration = 4000; // Medium range: 4.0 seconds  
+      } else {
+        stunDuration = 5000; // Far range: 5.0 seconds
+      }
+
+      player.stun(stunDuration);
+      affectedPlayers.push({
+        id: player.id,
+        name: player.name,
+        distance: Math.round(distance),
+        stunDuration: stunDuration
+      });
+      console.log(`Player ${player.name} stunned for ${stunDuration}ms at distance ${Math.round(distance)}px`);
+    });
+
+    return affectedPlayers;
+  }
+
   // Collision detection
   public checkObstacleCollision(x: number, y: number, radius: number): boolean {
     for (const obstacle of this.obstacles) {
@@ -329,6 +437,78 @@ export class GameState {
     }
 
     return { x: 400, y: 300 }; // Fallback to center
+  }
+
+  // Player movement update (for AI players)
+  public updatePlayer(playerId: string, movement: { dx: number; dy: number }, deltaTime: number): boolean {
+    const player = this.getPlayer(playerId);
+    if (!player) return false;
+
+    const { dx, dy } = movement;
+
+    // Server-side movement validation to prevent cheating
+    const magnitude = Math.sqrt(dx * dx + dy * dy);
+    const maxAllowedSpeed = 1.1; // Allow slight tolerance for floating point precision
+
+    if (magnitude > maxAllowedSpeed) {
+      // Log suspicious movement for monitoring
+      console.warn(
+        `Player ${player.name} (${playerId}) attempted invalid movement: magnitude ${magnitude.toFixed(3)}`
+      );
+
+      // Normalize the movement to maximum allowed speed
+      const normalizedDx = magnitude > 0 ? dx / magnitude : 0;
+      const normalizedDy = magnitude > 0 ? dy / magnitude : 0;
+
+      this.applyMovementToPlayer(player, normalizedDx, normalizedDy, deltaTime);
+    } else {
+      // Movement is within valid range
+      this.applyMovementToPlayer(player, dx, dy, deltaTime);
+    }
+
+    return true;
+  }
+
+  private applyMovementToPlayer(player: Player, dx: number, dy: number, deltaTime: number): void {
+    // Check if player is stunned - if so, don't allow movement
+    if (player.isStunned) {
+      return;
+    }
+
+    // Store current velocity for prediction
+    player.velocity = { dx, dy };
+
+    // Adjust speed based on whether player is "it" (catcher gets speed boost)
+    const currentSpeed = player.isIt ? player.speed * 1.3 : player.speed; // 30% speed boost for catcher
+    const moveDistance = currentSpeed * (deltaTime / 1000);
+
+    // Calculate new position
+    let newX = player.x + dx * moveDistance;
+    let newY = player.y + dy * moveDistance;
+
+    // Keep player within bounds
+    newX = Math.max(player.currentRadius, Math.min(this.gameWidth - player.currentRadius, newX));
+    newY = Math.max(player.currentRadius, Math.min(this.gameHeight - player.currentRadius, newY));
+
+    // Check for obstacle collisions
+    const wouldCollide = this.checkObstacleCollision(newX, newY, player.currentRadius);
+
+    if (!wouldCollide) {
+      player.x = newX;
+      player.y = newY;
+    } else {
+      // Try moving only in X direction
+      if (!this.checkObstacleCollision(newX, player.y, player.currentRadius)) {
+        player.x = newX;
+      }
+      // Try moving only in Y direction
+      else if (!this.checkObstacleCollision(player.x, newY, player.currentRadius)) {
+        player.y = newY;
+      }
+      // If both directions would cause collision, don't move
+    }
+
+    player.lastUpdate = Date.now();
   }
 
   // Game update loop

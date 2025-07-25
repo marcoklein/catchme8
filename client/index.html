@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>CatchMe - Multiplayer Catch Game</title>
     <link rel="stylesheet" href="css/style.css" />
     <link rel="stylesheet" href="css/debug-stats.css" />
@@ -59,6 +59,15 @@
 
       <div id="gameMessages"></div>
     </div>
+
+    <!-- Fullscreen Toggle Buttons -->
+    <button id="fullscreenButton" onclick="window.game?.toggleFullscreen()" title="Enter Fullscreen">
+      📱 Fullscreen
+    </button>
+    
+    <button id="exitFullscreenButton" onclick="window.game?.toggleFullscreen()" title="Exit Fullscreen">
+      ✕
+    </button>
 
     <!-- Debug Stats Panel -->
     <div id="debugPanel" class="debug-panel hidden">

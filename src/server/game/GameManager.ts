@@ -55,7 +55,7 @@ export class GameManager {
 
   // AI management
   private lastAIUpdate = Date.now();
-  private readonly aiUpdateInterval = 1000 / 10; // Update AI 10 times per second
+  private readonly aiUpdateInterval = 1000 / 30; // Update AI 30 times per second (same as broadcast rate)
 
   constructor(io: TypedServer) {
     this.io = io;
@@ -252,6 +252,8 @@ export class GameManager {
       return;
     }
 
+    // Calculate proper AI deltaTime based on AI update frequency
+    const aiDeltaTime = Math.min(now - this.lastAIUpdate, 200); // Cap at 200ms for safety
     this.lastAIUpdate = now;
 
     // Update each AI player
@@ -260,22 +262,10 @@ export class GameManager {
         // Get AI decision and movement
         const movement = player.makeDecision(this.gameState.toJSON());
 
-        // Apply movement if valid
-        if (movement.dx !== 0 || movement.dy !== 0) {
-          const result = MovementEngine.validateMovement(
-            player,
-            movement.dx,
-            movement.dy,
-            this.gameState.gameWidth,
-            this.gameState.gameHeight,
-            this.gameState.obstacles
-          );
-
-          if (result.isValid) {
-            player.x = result.x;
-            player.y = result.y;
-            player.lastMovement = now;
-          }
+        // Apply movement using the proper updatePlayer method with AI deltaTime
+        if (this.gameState.updatePlayer(player.id, movement, aiDeltaTime)) {
+          // Check for game events (power-ups, collisions)
+          this.checkGameEvents(player);
         }
       }
     });
@@ -293,7 +283,15 @@ export class GameManager {
   }
 
   private broadcastGameState(): void {
-    this.io.to('game').emit('gameState', this.gameState.toJSON());
+    const gameState = this.gameState.toJSON();
+    
+    // Debug: Log AI player positions when broadcasting (occasionally)
+    const aiPlayers = gameState.players.filter(p => p.isAI);
+    if (aiPlayers.length > 0 && Math.random() < 0.05) { // Only 5% of the time
+      console.log(`[BROADCAST] AI Players positions:`, aiPlayers.map(p => `${p.name}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`));
+    }
+    
+    this.io.to('game').emit('gameState', gameState);
   }
 
   private startGameLoop(): void {
@@ -336,6 +334,9 @@ export class GameManager {
 
       // Update game state
       this.gameState.update(deltaTime);
+
+      // Check for player collisions (independent of movement)
+      this.checkAllPlayerCollisions();
 
       // Check if we should broadcast
       const shouldBroadcast = now - this.lastBroadcast >= this.broadcastInterval;
@@ -416,9 +417,146 @@ export class GameManager {
   }
 
   private checkGameEvents(player: Player): void {
-    // This will be implemented with the GameState
-    // For now, just update player activity
+    // Update player activity
     player.lastMovement = Date.now();
+
+    // Check for power-up collection
+    const collectedPowerUp = this.gameState.checkPowerUpCollision(player);
+    if (collectedPowerUp) {
+      console.log(`Player ${player.name} collected power-up: ${collectedPowerUp.type}`);
+      
+      // Apply power-up effect
+      if (collectedPowerUp.type === 'transparency') {
+        player.activateTransparency(10000); // 10 seconds
+      } else if (collectedPowerUp.type === 'speed') {
+        // Speed boost could be implemented later
+        console.log(`Speed boost not yet implemented`);
+      } else if (collectedPowerUp.type === 'size') {
+        player.activateSizeBoost(10000); // 10 seconds
+      }
+
+      // Emit power-up collection event
+      this.io.to('game').emit('powerUpCollected', {
+        playerId: player.id,
+        playerName: player.name,
+        powerUpType: collectedPowerUp.type,
+      });
+    }
+
+    // Check for star collection
+    const collectedStar = this.gameState.checkStarCollision(player);
+    if (collectedStar) {
+      console.log(`Player ${player.name} collected star`);
+      
+      // Award points
+      const points = player.awardStarPoints();
+      
+      // Emit star collection event
+      this.io.to('game').emit('starCollected', {
+        playerId: player.id,
+        playerName: player.name,
+        starId: collectedStar.id,
+        pointsAwarded: points,
+        newScore: player.score,
+      });
+
+      // Emit score update
+      this.io.to('game').emit('scoreUpdate', {
+        playerId: player.id,
+        playerName: player.name,
+        score: player.score,
+        change: points,
+        reason: 'star_collection',
+      });
+    }
+
+    // Check for stun orb collection
+    const collectedStunOrb = this.gameState.checkStunOrbCollision(player);
+    if (collectedStunOrb) {
+      console.log(`Player ${player.name} collected stun orb, isIt: ${player.isIt}`);
+      
+      const affectedPlayers = this.gameState.collectStunOrb(player, collectedStunOrb);
+
+      console.log(`Affected players: ${affectedPlayers.length}`);
+
+      // Emit stun orb collection event
+      this.io.to('game').emit('stunOrbCollected', {
+        playerId: player.id,
+        playerName: player.name,
+        stunOrbId: collectedStunOrb.id,
+        onlyForIt: !player.isIt,
+        stunActivated: player.isIt,
+        affectedPlayers: affectedPlayers,
+        explosionCenter: { x: collectedStunOrb.x, y: collectedStunOrb.y },
+      });
+
+      // If stun was activated by IT player, notify about the explosion
+      if (player.isIt) {
+        console.log(`IT player collected stun orb, emitting explosion event`);
+        
+        // Emit explosion event to trigger client-side effects
+        this.io.to('game').emit('stunOrbExplosion', {
+          itPlayerId: player.id,
+          itPlayerName: player.name,
+          explosionX: collectedStunOrb.x,
+          explosionY: collectedStunOrb.y,
+          explosionRadius: Math.sqrt(this.gameState.gameWidth * this.gameState.gameWidth + this.gameState.gameHeight * this.gameState.gameHeight), // Screen-wide coverage
+          stunDuration: 1000,
+          affectedPlayers: affectedPlayers,
+        });
+      } else {
+        console.log(`Non-IT player collected stun orb, no explosion`);
+      }
+    }
+  }
+
+  private checkAllPlayerCollisions(): void {
+    // Check for player-to-player collisions (tagging) for all IT players
+    this.gameState.forEachPlayer((player) => {
+      if (player.isIt && !player.isStunned) {
+        this.gameState.forEachPlayer((otherPlayer) => {
+          if (otherPlayer.id !== player.id && !otherPlayer.isStunned && !otherPlayer.isTransparent) {
+            const dx = player.x - otherPlayer.x;
+            const dy = player.y - otherPlayer.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Check if collision occurs (players touching)
+            if (distance < player.currentRadius + otherPlayer.currentRadius) {
+              console.log(`Player ${player.name} tagged ${otherPlayer.name}!`);
+              
+              // Stun the player who was caught for 3 seconds
+              otherPlayer.stun(3000);
+              
+              // Transfer "it" status
+              player.stopBeingIt();
+              otherPlayer.becomeIt();
+              
+              // Award points to the tagger
+              player.awardTagPoints();
+              const tagPoints = 100;
+              
+              // Emit tagging event
+              this.io.to('game').emit('playerTagged', {
+                tagger: player.name,
+                tagged: otherPlayer.name,
+                newIt: otherPlayer.id,
+              });
+              
+              // Emit score update for the tagger
+              this.io.to('game').emit('scoreUpdate', {
+                playerId: player.id,
+                playerName: player.name,
+                score: player.score,
+                change: tagPoints,
+                reason: 'successful_tag',
+              });
+              
+              return; // Only tag one player at a time
+            }
+          }
+        });
+      }
+    });
   }
 
   private removeInactivePlayers(now: number): void {

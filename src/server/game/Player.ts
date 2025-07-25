@@ -10,8 +10,11 @@ export class Player {
   public score: number = 0;
   public isStunned: boolean = false;
   public isTransparent: boolean = false;
+  public hasSizeBoost: boolean = false;
+  public sizeBoostStacks: number = 0;
+  public currentRadius: number = 15;
   public readonly radius: number = 15;
-  public readonly speed: number = 100;
+  public readonly speed: number = 60; // Slower speed (30% of 200) for better gameplay
   public readonly color: string;
   public readonly sightRange: number = 200; // Circular sight radius
   
@@ -28,6 +31,8 @@ export class Player {
   // Power-up states
   public transparencyEndTime: number = 0;
   public stunEndTime: number = 0;
+  public sizeBoostEndTime: number = 0;
+  private sizeBoostTimers: NodeJS.Timeout[] = [];
   public isPerformingStunPulse: boolean = false;
   
   // Input tracking for server-authoritative system
@@ -36,6 +41,7 @@ export class Player {
   
   private stunTimeout: NodeJS.Timeout | null = null;
   private transparencyTimeout: NodeJS.Timeout | null = null;
+  // Removed single timeout - now using array of timers
 
   constructor(id: string, name: string, x: number, y: number, isAI: boolean = false) {
     this.id = id;
@@ -108,6 +114,46 @@ export class Player {
     console.log(`${this.name} became transparent for ${duration}ms`);
   }
 
+  // Size boost power-up with stacking support
+  public activateSizeBoost(duration: number): void {
+    // Add another stack
+    this.sizeBoostStacks += 1;
+    this.hasSizeBoost = true;
+    
+    // Calculate new radius: base 15px + 10px per stack
+    this.currentRadius = 15 + (this.sizeBoostStacks * 10);
+    
+    // Update end time to latest collection
+    this.sizeBoostEndTime = Date.now() + duration;
+    
+    // Create a timeout for this specific stack
+    const timeout = setTimeout(() => {
+      this.decrementSizeBoost();
+    }, duration);
+    
+    this.sizeBoostTimers.push(timeout);
+    
+    console.log(`${this.name} activated size boost stack ${this.sizeBoostStacks} (radius: ${this.currentRadius}px) for ${duration}ms`);
+  }
+
+  private decrementSizeBoost(): void {
+    if (this.sizeBoostStacks > 0) {
+      this.sizeBoostStacks -= 1;
+      
+      if (this.sizeBoostStacks === 0) {
+        // No more stacks, deactivate completely
+        this.hasSizeBoost = false;
+        this.currentRadius = 15; // Reset to default
+        this.sizeBoostEndTime = 0;
+        console.log(`${this.name} size boost completely expired (back to ${this.currentRadius}px)`);
+      } else {
+        // Still have stacks, recalculate size
+        this.currentRadius = 15 + (this.sizeBoostStacks * 10);
+        console.log(`${this.name} size boost stack expired, ${this.sizeBoostStacks} stacks remaining (radius: ${this.currentRadius}px)`);
+      }
+    }
+  }
+
   // Stun pulse for IT players
   public startStunPulse(): void {
     this.isPerformingStunPulse = true;
@@ -131,7 +177,7 @@ export class Player {
     const dy = this.y - target.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    return distance < (this.radius + target.radius);
+    return distance < (this.currentRadius + target.currentRadius);
   }
 
   // Scoring system
@@ -166,6 +212,9 @@ export class Player {
       this.isStunned = false;
       this.stunEndTime = 0;
     }
+    
+    // Size boost stacks are managed by individual timers
+    // No need for manual time checking here
   }
 
   // Position utilities
@@ -191,8 +240,12 @@ export class Player {
       score: this.score,
       isStunned: this.isStunned,
       isTransparent: this.isTransparent,
+      hasSizeBoost: this.hasSizeBoost,
+      sizeBoostStacks: this.sizeBoostStacks,
+      sizeBoostEndTime: this.sizeBoostEndTime,
       lastUpdate: this.lastUpdate,
       radius: this.radius,
+      currentRadius: this.currentRadius,
       speed: this.speed,
       color: this.color,
       becameItTime: this.becameItTime,
@@ -212,5 +265,8 @@ export class Player {
       clearTimeout(this.transparencyTimeout);
       this.transparencyTimeout = null;
     }
+    // Clear all size boost timers
+    this.sizeBoostTimers.forEach(timeout => clearTimeout(timeout));
+    this.sizeBoostTimers = [];
   }
 }

@@ -20,8 +20,12 @@ export interface PlayerState {
   score: number;
   isStunned: boolean;
   isTransparent: boolean;
+  hasSizeBoost: boolean;
+  sizeBoostStacks: number;
+  sizeBoostEndTime: number;
   lastUpdate: number;
   radius: number;
+  currentRadius: number;
   speed: number;
   color: string;
   becameItTime?: number;
@@ -45,7 +49,7 @@ export interface PowerUp {
   id: string;
   x: number;
   y: number;
-  type: 'transparency' | 'speed' | 'stun';
+  type: 'transparency' | 'speed' | 'stun' | 'size';
   radius: number;
   active: boolean;
   duration: number;

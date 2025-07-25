@@ -1,38 +1,67 @@
-class TouchInputManager {
+interface TouchState {
+  isActive: boolean;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  dx: number;
+  dy: number;
+}
+
+interface TouchMovement {
+  dx: number;
+  dy: number;
+}
+
+interface JoystickPosition {
+  x: number;
+  y: number;
+}
+
+interface TouchInputState {
+  dx: number;
+  dy: number;
+  isActive: boolean;
+  timestamp: number;
+}
+
+export class TouchInputManager {
+  private touchState: TouchState = {
+    isActive: false,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    dx: 0,
+    dy: 0,
+  };
+
+  private joystickRadius = 60; // Virtual joystick size
+  private deadZone = 15; // Increased dead zone for better control
+  private maxDistance = 50; // Maximum effective distance (smaller than visual radius)
+  private joystickCenter: JoystickPosition = { x: 0, y: 0 };
+  private knobPosition: JoystickPosition = { x: 0, y: 0 };
+  private canvas: HTMLCanvasElement | null = null;
+  private movement: TouchMovement = { dx: 0, dy: 0 };
+
+  // Sensitivity and responsiveness settings
+  private sensitivity = 0.8; // Reduce overall sensitivity
+  private smoothing = 0.15; // Add smoothing to reduce jittery movement
+
   constructor() {
-    this.touchState = {
-      isActive: false,
-      startX: 0,
-      startY: 0,
-      currentX: 0,
-      currentY: 0,
-      dx: 0,
-      dy: 0,
-    };
-
-    this.joystickRadius = 60; // Virtual joystick size
-    this.deadZone = 15; // Increased dead zone for better control
-    this.maxDistance = 50; // Maximum effective distance (smaller than visual radius)
-    this.joystickCenter = { x: 0, y: 0 };
-    this.knobPosition = { x: 0, y: 0 };
-    this.canvas = null;
-    this.movement = { dx: 0, dy: 0 };
-
-    // Sensitivity and responsiveness settings
-    this.sensitivity = 0.8; // Reduce overall sensitivity
-    this.smoothing = 0.15; // Add smoothing to reduce jittery movement
-
     this.setupTouchEvents();
   }
-  setupTouchEvents() {
+
+  private setupTouchEvents(): void {
     // Get the game canvas for touch events
-    this.canvas = document.getElementById("gameCanvas");
+    this.canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 
     if (!this.canvas) {
-      console.warn("TouchInputManager: Game canvas not found, retrying...");
       // Retry after a short delay if canvas isn't ready
       setTimeout(() => {
-        this.canvas = document.getElementById("gameCanvas");
+        this.canvas = document.getElementById(
+          "gameCanvas"
+        ) as HTMLCanvasElement;
         if (this.canvas) {
           this.bindTouchEvents();
         }
@@ -43,7 +72,9 @@ class TouchInputManager {
     this.bindTouchEvents();
   }
 
-  bindTouchEvents() {
+  private bindTouchEvents(): void {
+    if (!this.canvas) return;
+
     // Prevent default touch behaviors that might interfere
     this.canvas.addEventListener(
       "touchstart",
@@ -66,11 +97,11 @@ class TouchInputManager {
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  handleTouchStart(event) {
+  private handleTouchStart(event: TouchEvent): void {
     event.preventDefault();
 
     if (!this.canvas) {
-      this.canvas = document.getElementById("gameCanvas");
+      this.canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
       if (!this.canvas) return;
     }
 
@@ -98,7 +129,7 @@ class TouchInputManager {
     this.knobPosition.y = this.touchState.startY;
   }
 
-  handleTouchMove(event) {
+  private handleTouchMove(event: TouchEvent): void {
     event.preventDefault();
 
     if (!this.touchState.isActive || !this.canvas) return;
@@ -173,7 +204,7 @@ class TouchInputManager {
     };
   }
 
-  handleTouchEnd(event) {
+  private handleTouchEnd(event: TouchEvent): void {
     event.preventDefault();
 
     this.touchState.isActive = false;
@@ -181,14 +212,15 @@ class TouchInputManager {
     // Gradually stop movement instead of abrupt stop - with safety timeout
     let stopFrameCount = 0;
     const maxStopFrames = 30; // Safety limit to prevent infinite loops
-    
+
     const stopMovement = () => {
       this.touchState.dx *= 0.7; // Smooth deceleration
       this.touchState.dy *= 0.7;
       stopFrameCount++;
 
       if (
-        (Math.abs(this.touchState.dx) >= 0.05 || Math.abs(this.touchState.dy) >= 0.05) &&
+        (Math.abs(this.touchState.dx) >= 0.05 ||
+          Math.abs(this.touchState.dy) >= 0.05) &&
         stopFrameCount < maxStopFrames
       ) {
         this.movement = {
@@ -201,7 +233,6 @@ class TouchInputManager {
         this.touchState.dx = 0;
         this.touchState.dy = 0;
         this.movement = { dx: 0, dy: 0 };
-        console.log(`Touch deceleration complete after ${stopFrameCount} frames`);
       }
     };
 
@@ -212,7 +243,7 @@ class TouchInputManager {
     this.knobPosition.y = this.joystickCenter.y;
   }
 
-  getInputState() {
+  public getInputState(): TouchInputState {
     return {
       dx: this.touchState.dx,
       dy: this.touchState.dy,
@@ -222,15 +253,15 @@ class TouchInputManager {
   }
 
   // Keep existing getMovement method for backward compatibility during transition
-  getMovement() {
+  public getMovement(): TouchMovement {
     return this.movement;
   }
 
-  isActive() {
+  public isActive(): boolean {
     return this.touchState.isActive;
   }
 
-  renderVirtualJoystick(ctx) {
+  public renderVirtualJoystick(ctx: CanvasRenderingContext2D): void {
     if (!this.touchState.isActive) return;
 
     const { x: centerX, y: centerY } = this.joystickCenter;
