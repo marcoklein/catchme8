@@ -1,4 +1,4 @@
-import { GameStateData, InputState, PlayerState } from './GameTypes';
+import { GameStateData, InputState, PlayerState, Level, LevelTransition } from './GameTypes';
 
 // Score update data
 export interface ScoreUpdateData {
@@ -70,6 +70,28 @@ export interface GameJoinedData {
   gameState: GameStateData;
 }
 
+// Level transition events
+export interface LevelTransitionData {
+  fromLevel: Level | null;
+  toLevel: Level;
+  transitionType: 'fade' | 'slide' | 'zoom';
+  duration: number;
+  previewDuration: number;
+}
+
+export interface LevelPreviewData {
+  level: Level;
+  timeRemaining: number;
+  previewDuration: number;
+}
+
+export interface RoundEndData {
+  winner?: PlayerState;
+  reason: 'time_limit' | 'point_threshold' | 'admin_trigger';
+  finalScores: { playerId: string; playerName: string; score: number }[];
+  nextLevelPreview: Level;
+}
+
 // Server to Client Events
 export interface ServerToClientEvents {
   gameJoined: (data: GameJoinedData) => void;
@@ -84,6 +106,9 @@ export interface ServerToClientEvents {
     itPlayerName: string;
     affectedPlayers: Array<{ id: string; name: string }>;
   }) => void;
+  levelTransitionStart: (data: LevelTransitionData) => void;
+  levelPreview: (data: LevelPreviewData) => void;
+  roundEnd: (data: RoundEndData) => void;
   gameEnd: (reason: string) => void;
   joinError: (error: string) => void;
 }

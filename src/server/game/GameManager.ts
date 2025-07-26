@@ -1,9 +1,10 @@
 import { Server, Socket } from 'socket.io';
-import { ServerToClientEvents, ClientToServerEvents, InterServerEvents, SocketData, InputState } from '@shared/types';
+import { ServerToClientEvents, ClientToServerEvents, InterServerEvents, SocketData, InputState, Level, LevelTransitionData, RoundEndData, LevelPreviewData } from '@shared/types';
 import { GameState } from './GameState';
 import { Player } from './Player';
 import { AIPlayer } from './AIPlayer';
 import { MovementEngine } from './MovementEngine';
+import { LevelManager } from './LevelManager';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -24,10 +25,17 @@ interface BufferedInput extends InputState {
 export class GameManager {
   private gameState: GameState;
   private io: TypedServer;
+  private levelManager: LevelManager;
   
   // Game loop control
   private running: boolean = true;
   private gameLoopTimeout: NodeJS.Timeout | null = null;
+  
+  // Level transition state
+  private levelTransitionActive: boolean = false;
+  private levelPreviewTimeout: NodeJS.Timeout | null = null;
+  private roundStartTime: number = Date.now();
+  private readonly roundDuration = 120000; // 2 minutes per round
   
   // Game loop timing
   private lastUpdate = Date.now();
@@ -59,7 +67,17 @@ export class GameManager {
 
   constructor(io: TypedServer) {
     this.io = io;
-    this.gameState = new GameState();
+    
+    // Initialize level manager
+    this.levelManager = new LevelManager({
+      rotation: 'sequential',
+      roundDuration: this.roundDuration,
+      transitionDuration: 3000,
+      previewDuration: 10000
+    });
+    
+    // Initialize game state with level manager
+    this.gameState = new GameState(this.levelManager);
     this.startGameLoop();
     
     // Add initial AI player for testing
@@ -193,10 +211,15 @@ export class GameManager {
     console.log('GameManager: Shutting down game loop...');
     this.running = false;
     
-    // Clear any pending timeout
+    // Clear any pending timeouts
     if (this.gameLoopTimeout) {
       clearTimeout(this.gameLoopTimeout);
       this.gameLoopTimeout = null;
+    }
+    
+    if (this.levelPreviewTimeout) {
+      clearTimeout(this.levelPreviewTimeout);
+      this.levelPreviewTimeout = null;
     }
     
     // Clean up all input tracking and buffers
@@ -348,6 +371,11 @@ export class GameManager {
       }
 
       this.lastUpdate = now;
+    }
+
+    // Check for round completion and level transitions
+    if (!this.levelTransitionActive) {
+      this.checkRoundCompletion(now);
     }
 
     // Continue the game loop only if still running
@@ -622,5 +650,162 @@ export class GameManager {
         }
       }
     });
+  }
+
+  // Level transition system
+  private checkRoundCompletion(now: number): void {
+    if (this.levelTransitionActive) return;
+    
+    const timeSinceRoundStart = now - this.roundStartTime;
+    const shouldEndRound = this.shouldEndRound(timeSinceRoundStart);
+    
+    if (shouldEndRound.shouldEnd) {
+      this.initiateRoundEnd(shouldEndRound.reason);
+    }
+  }
+  
+  private shouldEndRound(timeSinceRoundStart: number): { shouldEnd: boolean; reason: 'time_limit' | 'point_threshold' | 'admin_trigger' } {
+    // Time limit reached
+    if (timeSinceRoundStart >= this.roundDuration) {
+      return { shouldEnd: true, reason: 'time_limit' };
+    }
+    
+    // Check if any player reached point threshold (500 points)
+    const players = Array.from(this.gameState.getPlayers().values());
+    const winner = players.find(player => player.score >= 500);
+    if (winner) {
+      return { shouldEnd: true, reason: 'point_threshold' };
+    }
+    
+    return { shouldEnd: false, reason: 'time_limit' };
+  }
+  
+  private initiateRoundEnd(reason: 'time_limit' | 'point_threshold' | 'admin_trigger'): void {
+    if (this.levelTransitionActive) return;
+    
+    this.levelTransitionActive = true;
+    console.log(`Round ending due to: ${reason}`);
+    
+    // Calculate final scores and winner
+    const players = Array.from(this.gameState.getPlayers().values());
+    const finalScores = players.map(player => ({
+      playerId: player.id,
+      playerName: player.name,
+      score: player.score
+    })).sort((a, b) => b.score - a.score);
+    
+    const winner = finalScores.length > 0 ? players.find(p => p.id === finalScores[0].playerId) : undefined;
+    const nextLevel = this.levelManager.getNextLevel();
+    
+    // Emit round end event
+    const roundEndData: RoundEndData = {
+      winner: winner?.toJSON(),
+      reason,
+      finalScores,
+      nextLevelPreview: nextLevel
+    };
+    
+    this.io.to('game').emit('roundEnd', roundEndData);
+    
+    // Start level preview after short delay
+    setTimeout(() => {
+      this.startLevelPreview(nextLevel);
+    }, 2000);
+  }
+  
+  private startLevelPreview(nextLevel: Level): void {
+    console.log(`Starting level preview for: ${nextLevel.name}`);
+    
+    const previewData: LevelPreviewData = {
+      level: nextLevel,
+      timeRemaining: 10000, // 10 seconds preview
+      previewDuration: 10000
+    };
+    
+    this.io.to('game').emit('levelPreview', previewData);
+    
+    // Start countdown for level transition
+    this.levelPreviewTimeout = setTimeout(() => {
+      this.executeLevelTransition(nextLevel);
+    }, 10000);
+  }
+  
+  private executeLevelTransition(nextLevel: Level): void {
+    console.log(`Transitioning to level: ${nextLevel.name}`);
+    
+    const currentLevel = this.gameState.getCurrentLevel();
+    
+    // Create transition data
+    const transitionData: LevelTransitionData = {
+      fromLevel: currentLevel,
+      toLevel: nextLevel,
+      transitionType: 'fade',
+      duration: 3000,
+      previewDuration: 10000
+    };
+    
+    // Emit transition start
+    this.io.to('game').emit('levelTransitionStart', transitionData);
+    
+    // Execute the level change
+    setTimeout(() => {
+      this.completeTransition(nextLevel);
+    }, 1500); // Halfway through transition
+  }
+  
+  private completeTransition(nextLevel: Level): void {
+    console.log(`Completing transition to: ${nextLevel.name}`);
+    
+    // Transition to the new level
+    this.gameState.transitionToNextLevel();
+    
+    // Respawn all players at new spawn points
+    this.respawnAllPlayers();
+    
+    // Reset round timer
+    this.roundStartTime = Date.now();
+    this.levelTransitionActive = false;
+    
+    // Broadcast updated game state with new level
+    this.broadcastGameState();
+    
+    console.log(`Successfully transitioned to level: ${nextLevel.name}`);
+  }
+  
+  private respawnAllPlayers(): void {
+    this.gameState.forEachPlayer((player) => {
+      // Find a safe spawn position
+      const spawnPos = this.gameState.findSafeSpawnPosition();
+      
+      // Reset player position
+      player.x = spawnPos.x;
+      player.y = spawnPos.y;
+      
+      // Clear any active effects
+      player.isStunned = false;
+      player.isTransparent = false;
+      player.hasSizeBoost = false;
+      player.sizeBoostStacks = 0;
+      
+      // Reset input state
+      player.currentInput = null;
+      
+      console.log(`Respawned ${player.name} at (${spawnPos.x}, ${spawnPos.y})`);
+    });
+    
+    // Clear input states
+    this.playerInputStates.clear();
+  }
+  
+  // Public method to manually trigger level transition (for testing/admin)
+  public triggerLevelTransition(): void {
+    if (!this.levelTransitionActive) {
+      this.initiateRoundEnd('admin_trigger');
+    }
+  }
+  
+  // Get current level info
+  public getCurrentLevelInfo(): Level {
+    return this.gameState.getCurrentLevel();
   }
 }

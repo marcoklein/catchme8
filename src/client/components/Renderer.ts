@@ -7,6 +7,10 @@ import {
   StunOrb,
   Position,
   SightUtils,
+  Level,
+  LevelTheme,
+  BackgroundElement,
+  SpawnPoint,
 } from "@shared/types";
 
 interface ExplosionEffect {
@@ -77,6 +81,24 @@ interface CameraState {
   y: number;        // Camera center Y in world coordinates
   targetX: number;  // Target X for smooth following
   targetY: number;  // Target Y for smooth following
+}
+
+interface LevelTransitionState {
+  active: boolean;
+  type: 'fade' | 'slide' | 'zoom';
+  progress: number; // 0 to 1
+  fromLevel: Level | null;
+  toLevel: Level | null;
+  startTime: number;
+  duration: number;
+}
+
+interface LevelPreviewState {
+  active: boolean;
+  level: Level | null;
+  timeRemaining: number;
+  startTime: number;
+  duration: number;
 }
 
 export class Renderer {
@@ -156,6 +178,26 @@ export class Renderer {
     targetY: 300
   };
   private cameraSmoothing = 0.1; // How quickly camera follows (0.1 = smooth, 1.0 = instant)
+  
+  // Level transition system
+  private levelTransition: LevelTransitionState = {
+    active: false,
+    type: 'fade',
+    progress: 0,
+    fromLevel: null,
+    toLevel: null,
+    startTime: 0,
+    duration: 3000
+  };
+  
+  // Level preview system
+  private levelPreview: LevelPreviewState = {
+    active: false,
+    level: null,
+    timeRemaining: 0,
+    startTime: 0,
+    duration: 10000
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -468,6 +510,11 @@ export class Renderer {
       
       // Draw background normally (always visible)
       this.drawBackground();
+      
+      // Draw level-specific background elements
+      if (this.gameState.currentLevel) {
+        this.drawLevelBackground(this.gameState.currentLevel);
+      }
 
       // Apply fog of war - black out everything outside vision circle
       this.drawFogOfWar(myPlayer);
@@ -504,6 +551,11 @@ export class Renderer {
       // Fallback: draw everything if no player found
       console.log(`[RENDER] No myPlayer found, using fallback rendering`);
       this.drawBackground();
+      
+      // Draw level-specific background elements in fallback mode
+      if (this.gameState.currentLevel) {
+        this.drawLevelBackground(this.gameState.currentLevel);
+      }
       
       // Apply fog of war in fallback mode too (if we can find any player)
       const anyPlayer = this.gameState.players.find(p => p.id === this.myPlayerId) || this.gameState.players[0];
@@ -547,6 +599,14 @@ export class Renderer {
       (window as any).input.touchInput.renderVirtualJoystick(this.ctx);
     }
 
+    // Update and draw level transitions/previews
+    this.updateLevelTransition();
+    this.updateLevelPreview();
+    
+    // Draw level transitions and previews on top of everything
+    this.drawLevelTransition();
+    this.drawLevelPreview();
+    
     // Track render time for debug stats
     this.lastRenderTime = performance.now() - renderStart;
   }
@@ -1902,5 +1962,230 @@ export class Renderer {
       explosion.y
     );
     return result.isVisible;
+  }
+
+  // Level transition and preview methods
+  public startLevelTransition(fromLevel: Level | null, toLevel: Level, type: 'fade' | 'slide' | 'zoom' = 'fade', duration: number = 3000): void {
+    console.log(`Starting level transition from ${fromLevel?.name || 'none'} to ${toLevel.name}`);
+    this.levelTransition = {
+      active: true,
+      type,
+      progress: 0,
+      fromLevel,
+      toLevel,
+      startTime: Date.now(),
+      duration
+    };
+  }
+
+  public startLevelPreview(level: Level, duration: number = 10000): void {
+    console.log(`Starting level preview for ${level.name}`);
+    this.levelPreview = {
+      active: true,
+      level,
+      timeRemaining: duration,
+      startTime: Date.now(),
+      duration
+    };
+  }
+
+  public stopLevelPreview(): void {
+    this.levelPreview.active = false;
+  }
+
+  public stopLevelTransition(): void {
+    this.levelTransition.active = false;
+  }
+
+  // Level rendering methods
+  private updateLevelTransition(): void {
+    if (!this.levelTransition.active) return;
+    
+    const elapsed = Date.now() - this.levelTransition.startTime;
+    this.levelTransition.progress = Math.min(elapsed / this.levelTransition.duration, 1);
+    
+    if (this.levelTransition.progress >= 1) {
+      this.stopLevelTransition();
+    }
+  }
+
+  private updateLevelPreview(): void {
+    if (!this.levelPreview.active) return;
+    
+    const elapsed = Date.now() - this.levelPreview.startTime;
+    this.levelPreview.timeRemaining = Math.max(this.levelPreview.duration - elapsed, 0);
+    
+    if (this.levelPreview.timeRemaining <= 0) {
+      this.stopLevelPreview();
+    }
+  }
+
+  private drawLevelBackground(level?: Level): void {
+    if (!level || !this.gameState) return;
+    
+    // Draw level-specific background elements
+    for (const element of level.backgroundElements) {
+      const screenPos = this.worldToScreen(element.x, element.y);
+      
+      this.ctx.save();
+      this.ctx.globalAlpha = element.opacity || 1;
+      this.ctx.fillStyle = element.color || '#333333';
+      
+      if (element.type === 'ambient') {
+        // Fill entire background with ambient color
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      } else if (element.type === 'particle') {
+        // Draw particles
+        if (element.radius) {
+          this.ctx.beginPath();
+          this.ctx.arc(screenPos.x, screenPos.y, element.radius, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      } else if (element.type === 'decoration') {
+        // Draw decorative elements
+        if (element.width && element.height) {
+          this.ctx.fillRect(
+            screenPos.x - element.width / 2,
+            screenPos.y - element.height / 2,
+            element.width,
+            element.height
+          );
+        }
+      }
+      
+      this.ctx.restore();
+    }
+  }
+
+  private drawLevelTransition(): void {
+    if (!this.levelTransition.active) return;
+    
+    const progress = this.levelTransition.progress;
+    
+    this.ctx.save();
+    
+    switch (this.levelTransition.type) {
+      case 'fade':
+        // Fade to black
+        this.ctx.globalAlpha = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+        this.ctx.fillStyle = '#000000';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        break;
+        
+      case 'slide':
+        // Slide effect (simplified)
+        const slideOffset = progress * this.canvas.width;
+        this.ctx.translate(-slideOffset, 0);
+        break;
+        
+      case 'zoom':
+        // Zoom effect
+        const scale = 1 + progress * 0.5;
+        this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+        this.ctx.scale(scale, scale);
+        this.ctx.translate(-this.canvas.width / 2, -this.canvas.height / 2);
+        break;
+    }
+    
+    this.ctx.restore();
+  }
+
+  private drawLevelPreview(): void {
+    if (!this.levelPreview.active || !this.levelPreview.level) return;
+    
+    const level = this.levelPreview.level;
+    const timeLeft = Math.ceil(this.levelPreview.timeRemaining / 1000);
+    
+    // Draw semi-transparent overlay
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    // Draw level preview content
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '32px Arial';
+    this.ctx.textAlign = 'center';
+    
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height / 2;
+    
+    // Level name
+    this.ctx.fillText(`Next Level: ${level.name}`, centerX, centerY - 60);
+    
+    // Level description
+    this.ctx.font = '18px Arial';
+    this.ctx.fillText(level.description, centerX, centerY - 20);
+    
+    // Theme indicator
+    this.ctx.font = '16px Arial';
+    this.ctx.fillStyle = this.getLevelThemeColor(level.theme);
+    this.ctx.fillText(`Theme: ${level.theme.toUpperCase()}`, centerX, centerY + 20);
+    
+    // Countdown
+    this.ctx.font = '24px Arial';
+    this.ctx.fillStyle = timeLeft <= 3 ? '#ff4444' : '#ffffff';
+    this.ctx.fillText(`Starting in ${timeLeft}s`, centerX, centerY + 60);
+    
+    // Draw mini level preview
+    this.drawMiniLevelPreview(level, centerX, centerY + 100);
+    
+    this.ctx.restore();
+  }
+
+  private drawMiniLevelPreview(level: Level, x: number, y: number): void {
+    const previewWidth = 200;
+    const previewHeight = 150;
+    const scale = previewWidth / level.boundaries.width;
+    
+    this.ctx.save();
+    this.ctx.translate(x - previewWidth / 2, y);
+    
+    // Draw mini background
+    this.ctx.fillStyle = '#222222';
+    this.ctx.fillRect(0, 0, previewWidth, previewHeight);
+    
+    // Draw mini obstacles
+    this.ctx.fillStyle = this.getLevelThemeColor(level.theme);
+    for (const obstacle of level.obstacles) {
+      if (obstacle.type === 'rectangle' && obstacle.width && obstacle.height) {
+        this.ctx.fillRect(
+          obstacle.x * scale - (obstacle.width * scale) / 2,
+          obstacle.y * scale - (obstacle.height * scale) / 2,
+          obstacle.width * scale,
+          obstacle.height * scale
+        );
+      } else if (obstacle.type === 'circle' && obstacle.radius) {
+        this.ctx.beginPath();
+        this.ctx.arc(
+          obstacle.x * scale,
+          obstacle.y * scale,
+          obstacle.radius * scale,
+          0,
+          Math.PI * 2
+        );
+        this.ctx.fill();
+      }
+    }
+    
+    // Draw mini spawn points
+    this.ctx.fillStyle = '#00ff00';
+    for (const spawn of level.spawnPoints) {
+      this.ctx.beginPath();
+      this.ctx.arc(spawn.x * scale, spawn.y * scale, 3, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    
+    this.ctx.restore();
+  }
+
+  private getLevelThemeColor(theme: LevelTheme): string {
+    switch (theme) {
+      case 'classic': return '#4a90e2';
+      case 'maze': return '#8b4513';
+      case 'islands': return '#20b2aa';
+      case 'factory': return '#696969';
+      case 'forest': return '#228b22';
+      default: return '#4a90e2';
+    }
   }
 }

@@ -45,11 +45,70 @@ export interface Obstacle {
   type: 'rectangle' | 'circle';
 }
 
+// Level system types
+export interface Rectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SpawnPoint {
+  x: number;
+  y: number;
+  type: 'safe' | 'risky' | 'strategic';
+  visibility: 'open' | 'hidden' | 'elevated';
+  nearbyFeatures: string[];
+}
+
+export interface BackgroundElement {
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  radius?: number;
+  type: 'decoration' | 'particle' | 'ambient';
+  color?: string;
+  opacity?: number;
+}
+
+export interface PowerUpConfiguration {
+  spawnRate: number; // ms between spawns
+  maxActive: number;
+  types: PowerUpType[];
+  locations: 'random' | 'fixed' | 'strategic';
+}
+
+export type PowerUpType = 'transparency' | 'speed' | 'stun' | 'size' | 'wallWalk' | 'echoLocate' | 'teleport' | 'superJump' | 'bridgeBuilder' | 'waterWalk' | 'conveyorControl' | 'platformLock' | 'industrialShield' | 'treeClimb' | 'camouflage' | 'naturesCall';
+
+export type LevelTheme = 'classic' | 'maze' | 'islands' | 'factory' | 'forest';
+
+export interface Level {
+  id: string;
+  name: string;
+  theme: LevelTheme;
+  boundaries: Rectangle;
+  obstacles: Obstacle[];
+  spawnPoints: SpawnPoint[];
+  powerUpConfig: PowerUpConfiguration;
+  backgroundElements: BackgroundElement[];
+  difficulty: number;
+  description: string;
+}
+
+export interface LevelTransition {
+  fromLevel: string | null;
+  toLevel: string;
+  transitionType: 'fade' | 'slide' | 'zoom';
+  duration: number;
+  previewDuration: number;
+}
+
 export interface PowerUp {
   id: string;
   x: number;
   y: number;
-  type: 'transparency' | 'speed' | 'stun' | 'size';
+  type: PowerUpType;
   radius: number;
   active: boolean;
   duration: number;
@@ -89,6 +148,8 @@ export interface GameStateData {
   powerUps: PowerUp[];
   stars: Star[];
   stunOrbs: StunOrb[];
+  currentLevel: Level;
+  levelTransition?: LevelTransition;
 }
 
 // Input state from clients

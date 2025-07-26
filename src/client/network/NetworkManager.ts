@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { ServerToClientEvents, ClientToServerEvents, InputState, GameStateData, ExplosionData } from '@shared/types';
+import { ServerToClientEvents, ClientToServerEvents, InputState, GameStateData, ExplosionData, LevelTransitionData, LevelPreviewData, RoundEndData } from '@shared/types';
 
 export type MessageType = 'info' | 'error' | 'warning' | 'danger' | 'success' | 'star' | 'explosion' | 'tagged';
 
@@ -139,6 +139,31 @@ export class NetworkManager {
 
     this.socket.on('joinError', (error) => {
       this.showError(error);
+    });
+
+    // Level transition events
+    this.socket.on('levelTransitionStart', (data) => {
+      console.log(`[NETWORK] Level transition from ${data.fromLevel?.name || 'none'} to ${data.toLevel.name}`);
+      const rendererInstance = (window as any).renderer;
+      if (rendererInstance) {
+        rendererInstance.startLevelTransition(data.fromLevel, data.toLevel, data.transitionType, data.duration);
+      }
+      this.showMessage(`🌟 Level changing to: ${data.toLevel.name}`, 'info');
+    });
+
+    this.socket.on('levelPreview', (data) => {
+      console.log(`[NETWORK] Level preview for ${data.level.name}`);
+      const rendererInstance = (window as any).renderer;
+      if (rendererInstance) {
+        rendererInstance.startLevelPreview(data.level, data.previewDuration);
+      }
+    });
+
+    this.socket.on('roundEnd', (data) => {
+      console.log('[NETWORK] Round ended:', data);
+      const winnerText = data.winner ? `🏆 Winner: ${data.winner.name} (${data.winner.score} points)` : '⏰ Time\'s up!';
+      this.showMessage(winnerText, 'success');
+      this.showMessage(`🔄 Next level: ${data.nextLevelPreview.name}`, 'info');
     });
   }
 

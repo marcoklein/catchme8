@@ -1,5 +1,6 @@
-import { GameStateData, Obstacle, PowerUp, Star, StunOrb, Position } from '@shared/types';
+import { GameStateData, Obstacle, PowerUp, Star, StunOrb, Position, Level, SpawnPoint } from '@shared/types';
 import { Player } from './Player';
+import { LevelManager } from './LevelManager';
 
 export class GameState {
   private players = new Map<string, Player>();
@@ -11,7 +12,11 @@ export class GameState {
   public readonly minPlayers = 2;
   public readonly maxPlayers = 8;
   
-  public readonly obstacles: Obstacle[] = [];
+  // Level system
+  private levelManager: LevelManager;
+  private currentLevel: Level;
+  
+  public obstacles: Obstacle[] = [];
   private powerUps: PowerUp[] = [];
   private powerUpRespawnTimer = new Map<string, number>();
   
@@ -27,11 +32,16 @@ export class GameState {
   private readonly maxActiveStunOrbs = 2;
   private readonly stunOrbRespawnInterval = 20000; // 20 seconds
 
-  constructor() {
-    this.initializeObstacles();
-    this.initializePowerUps();
-    this.initializeStars();
-    this.initializeStunOrbs();
+  constructor(levelManager?: LevelManager) {
+    this.levelManager = levelManager || new LevelManager({
+      rotation: 'sequential',
+      roundDuration: 120000,
+      transitionDuration: 3000,
+      previewDuration: 10000
+    });
+    
+    this.currentLevel = this.levelManager.getCurrentLevel();
+    this.initializeFromLevel();
   }
 
   // Player management
@@ -140,125 +150,21 @@ export class GameState {
     }
   }
 
-  // Game world initialization
+  // Legacy initialization methods (kept for reference)
   private initializeObstacles(): void {
-    this.obstacles.push(
-      // Corner obstacles
-      { x: 150, y: 150, width: 60, height: 60, type: 'rectangle' },
-      { x: 650, y: 150, width: 60, height: 60, type: 'rectangle' },
-      { x: 150, y: 450, width: 60, height: 60, type: 'rectangle' },
-      { x: 650, y: 450, width: 60, height: 60, type: 'rectangle' },
-      // Circular obstacles
-      { x: 200, y: 300, radius: 30, type: 'circle' },
-      { x: 600, y: 300, radius: 30, type: 'circle' }
-    );
+    // Now handled by initializeFromLevel()
   }
 
   private initializePowerUps(): void {
-    const powerUpPositions = [
-      { x: 80, y: 80 },
-      { x: 720, y: 80 },
-      { x: 80, y: 520 },
-      { x: 720, y: 520 },
-      { x: 300, y: 150 },
-      { x: 500, y: 150 },
-      { x: 300, y: 450 },
-      { x: 500, y: 450 },
-    ];
-
-    powerUpPositions.forEach((pos, index) => {
-      if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
-        this.powerUps.push({
-          id: `powerup_${index}`,
-          x: pos.x,
-          y: pos.y,
-          type: Math.random() < 0.5 ? 'transparency' : 'size',
-          radius: 15,
-          active: true,
-          duration: 5000,
-          respawnTime: 15000,
-        });
-      }
-    });
+    // Now handled by initializeFromLevel()
   }
 
   private initializeStars(): void {
-    const starPositions = [
-      { x: 200, y: 150 },
-      { x: 600, y: 150 },
-      { x: 200, y: 450 },
-      { x: 600, y: 450 },
-      { x: 400, y: 200 },
-      { x: 150, y: 300 },
-      { x: 650, y: 300 },
-      { x: 300, y: 350 },
-      { x: 500, y: 350 },
-    ];
-
-    // Select random positions for initial stars
-    const selectedPositions: Position[] = [];
-    const positionsCopy = [...starPositions];
-
-    while (selectedPositions.length < this.maxActiveStars && positionsCopy.length > 0) {
-      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
-      const pos = positionsCopy.splice(randomIndex, 1)[0];
-
-      if (!this.checkObstacleCollision(pos.x, pos.y, 12)) {
-        selectedPositions.push(pos);
-      }
-    }
-
-    selectedPositions.forEach((pos, index) => {
-      this.stars.push({
-        id: `star_${index}`,
-        x: pos.x,
-        y: pos.y,
-        type: 'star',
-        radius: 12,
-        active: true,
-        spawnTime: Date.now(),
-        rotationAngle: Math.random() * Math.PI * 2,
-      });
-    });
+    // Now handled by initializeFromLevel()
   }
 
   private initializeStunOrbs(): void {
-    const stunOrbPositions = [
-      { x: 120, y: 200 },
-      { x: 680, y: 200 },
-      { x: 120, y: 400 },
-      { x: 680, y: 400 },
-      { x: 400, y: 120 },
-      { x: 400, y: 480 },
-      { x: 250, y: 300 },
-      { x: 550, y: 300 },
-    ];
-
-    // Select random positions for initial stun orbs
-    const selectedPositions: Position[] = [];
-    const positionsCopy = [...stunOrbPositions];
-
-    while (selectedPositions.length < this.maxActiveStunOrbs && positionsCopy.length > 0) {
-      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
-      const pos = positionsCopy.splice(randomIndex, 1)[0];
-
-      if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
-        selectedPositions.push(pos);
-      }
-    }
-
-    selectedPositions.forEach((pos, index) => {
-      this.stunOrbs.push({
-        id: `stunorb_${index}`,
-        x: pos.x,
-        y: pos.y,
-        type: 'stunOrb',
-        radius: 15,
-        active: true,
-        spawnTime: Date.now(),
-        electricPhase: Math.random() * Math.PI * 2,
-      });
-    });
+    // Now handled by initializeFromLevel()
   }
 
   // Item collision detection methods
@@ -404,26 +310,20 @@ export class GameState {
     return false;
   }
 
-  // Safe spawn position
+  // Safe spawn position using level-specific spawn points
   public findSafeSpawnPosition(): Position {
     const playerRadius = 20;
-    const safePositions = [
-      { x: 100, y: 100 },
-      { x: 700, y: 100 },
-      { x: 100, y: 500 },
-      { x: 700, y: 500 },
-      { x: 400, y: 100 },
-      { x: 400, y: 500 },
-      { x: 100, y: 300 },
-      { x: 700, y: 300 },
-    ];
+    const spawnPoints = this.currentLevel.spawnPoints;
+    
+    // Shuffle spawn points for randomness
+    const shuffledSpawns = [...spawnPoints].sort(() => Math.random() - 0.5);
 
-    for (const pos of safePositions) {
-      if (!this.checkObstacleCollision(pos.x, pos.y, playerRadius)) {
+    for (const spawnPoint of shuffledSpawns) {
+      if (!this.checkObstacleCollision(spawnPoint.x, spawnPoint.y, playerRadius)) {
         let tooClose = false;
         for (const player of this.players.values()) {
-          const dx = pos.x - player.x;
-          const dy = pos.y - player.y;
+          const dx = spawnPoint.x - player.x;
+          const dy = spawnPoint.y - player.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
           if (distance < playerRadius * 3) {
             tooClose = true;
@@ -431,12 +331,13 @@ export class GameState {
           }
         }
         if (!tooClose) {
-          return pos;
+          return { x: spawnPoint.x, y: spawnPoint.y };
         }
       }
     }
 
-    return { x: 400, y: 300 }; // Fallback to center
+    // Fallback to center if no spawn points are available
+    return { x: this.gameWidth / 2, y: this.gameHeight / 2 };
   }
 
   // Player movement update (for AI players)
@@ -675,6 +576,203 @@ export class GameState {
     return null;
   }
 
+  // Level management methods
+  public getCurrentLevel(): Level {
+    return this.currentLevel;
+  }
+  
+  public getLevelManager(): LevelManager {
+    return this.levelManager;
+  }
+  
+  public transitionToNextLevel(): Level {
+    const nextLevel = this.levelManager.advanceToNextLevel();
+    this.currentLevel = nextLevel;
+    this.initializeFromLevel();
+    return nextLevel;
+  }
+  
+  private initializeFromLevel(): void {
+    // Clear existing game objects
+    this.obstacles.length = 0;
+    this.powerUps.length = 0;
+    this.stars.length = 0;
+    this.stunOrbs.length = 0;
+    this.powerUpRespawnTimer.clear();
+    this.starRespawnTimer.clear();
+    this.stunOrbRespawnTimer.clear();
+    
+    // Initialize from current level
+    this.obstacles.push(...this.currentLevel.obstacles);
+    this.initializePowerUpsFromLevel();
+    this.initializeStarsFromLevel();
+    this.initializeStunOrbsFromLevel();
+  }
+  
+  private initializePowerUpsFromLevel(): void {
+    const config = this.currentLevel.powerUpConfig;
+    const numPowerUps = Math.min(config.maxActive, 8); // Cap at 8 for performance
+    
+    if (config.locations === 'fixed') {
+      // Use predefined locations based on level theme
+      const fixedPositions = this.getFixedPowerUpPositions();
+      fixedPositions.slice(0, numPowerUps).forEach((pos, index) => {
+        this.createPowerUpAt(pos, index, config);
+      });
+    } else {
+      // Random or strategic placement
+      for (let i = 0; i < numPowerUps; i++) {
+        const pos = this.findSafePowerUpPosition();
+        if (pos) {
+          this.createPowerUpAt(pos, i, config);
+        }
+      }
+    }
+  }
+  
+  private getFixedPowerUpPositions(): Position[] {
+    // Return level-specific fixed positions
+    switch (this.currentLevel.theme) {
+      case 'islands':
+        return [
+          { x: 150, y: 200 }, { x: 350, y: 150 }, { x: 550, y: 200 },
+          { x: 150, y: 400 }, { x: 450, y: 450 }, { x: 650, y: 350 }
+        ];
+      case 'maze':
+        return [
+          { x: 120, y: 120 }, { x: 280, y: 200 }, { x: 520, y: 160 },
+          { x: 680, y: 320 }, { x: 360, y: 480 }, { x: 160, y: 440 }
+        ];
+      default:
+        return [
+          { x: 80, y: 80 }, { x: 720, y: 80 }, { x: 80, y: 520 },
+          { x: 720, y: 520 }, { x: 300, y: 150 }, { x: 500, y: 450 }
+        ];
+    }
+  }
+  
+  private createPowerUpAt(pos: Position, index: number, config: any): void {
+    if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
+      const powerUpType = config.types[Math.floor(Math.random() * config.types.length)];
+      this.powerUps.push({
+        id: `powerup_${index}`,
+        x: pos.x,
+        y: pos.y,
+        type: powerUpType,
+        radius: 15,
+        active: true,
+        duration: 5000,
+        respawnTime: config.spawnRate,
+      });
+    }
+  }
+  
+  private findSafePowerUpPosition(): Position | null {
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const x = Math.random() * (this.gameWidth - 100) + 50;
+      const y = Math.random() * (this.gameHeight - 100) + 50;
+      
+      if (!this.checkObstacleCollision(x, y, 15)) {
+        let tooClose = false;
+        for (const player of this.players.values()) {
+          const dx = x - player.x;
+          const dy = y - player.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 80) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) {
+          return { x, y };
+        }
+      }
+    }
+    return null;
+  }
+  
+  private initializeStarsFromLevel(): void {
+    // Use level-appropriate star positions
+    const starPositions = this.getLevelSpecificPositions('stars');
+    const selectedPositions: Position[] = [];
+    const positionsCopy = [...starPositions];
+
+    while (selectedPositions.length < this.maxActiveStars && positionsCopy.length > 0) {
+      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
+      const pos = positionsCopy.splice(randomIndex, 1)[0];
+
+      if (!this.checkObstacleCollision(pos.x, pos.y, 12)) {
+        selectedPositions.push(pos);
+      }
+    }
+
+    selectedPositions.forEach((pos, index) => {
+      this.stars.push({
+        id: `star_${index}`,
+        x: pos.x,
+        y: pos.y,
+        type: 'star',
+        radius: 12,
+        active: true,
+        spawnTime: Date.now(),
+        rotationAngle: Math.random() * Math.PI * 2,
+      });
+    });
+  }
+  
+  private initializeStunOrbsFromLevel(): void {
+    // Use level-appropriate stun orb positions
+    const stunOrbPositions = this.getLevelSpecificPositions('stunOrbs');
+    const selectedPositions: Position[] = [];
+    const positionsCopy = [...stunOrbPositions];
+
+    while (selectedPositions.length < this.maxActiveStunOrbs && positionsCopy.length > 0) {
+      const randomIndex = Math.floor(Math.random() * positionsCopy.length);
+      const pos = positionsCopy.splice(randomIndex, 1)[0];
+
+      if (!this.checkObstacleCollision(pos.x, pos.y, 15)) {
+        selectedPositions.push(pos);
+      }
+    }
+
+    selectedPositions.forEach((pos, index) => {
+      this.stunOrbs.push({
+        id: `stunorb_${index}`,
+        x: pos.x,
+        y: pos.y,
+        type: 'stunOrb',
+        radius: 15,
+        active: true,
+        spawnTime: Date.now(),
+        electricPhase: Math.random() * Math.PI * 2,
+      });
+    });
+  }
+  
+  private getLevelSpecificPositions(type: 'stars' | 'stunOrbs'): Position[] {
+    const basePositions = type === 'stars' ? [
+      { x: 200, y: 150 }, { x: 600, y: 150 }, { x: 200, y: 450 },
+      { x: 600, y: 450 }, { x: 400, y: 200 }, { x: 150, y: 300 },
+      { x: 650, y: 300 }, { x: 300, y: 350 }, { x: 500, y: 350 }
+    ] : [
+      { x: 120, y: 200 }, { x: 680, y: 200 }, { x: 120, y: 400 },
+      { x: 680, y: 400 }, { x: 400, y: 120 }, { x: 400, y: 480 },
+      { x: 250, y: 300 }, { x: 550, y: 300 }
+    ];
+    
+    // Modify positions based on level theme
+    switch (this.currentLevel.theme) {
+      case 'islands':
+        return basePositions.map(pos => ({
+          x: pos.x + (Math.random() - 0.5) * 30,
+          y: pos.y + (Math.random() - 0.5) * 30
+        }));
+      case 'maze':
+        return basePositions.filter((_, index) => index % 2 === 0); // Fewer items in maze
+      default:
+        return basePositions;
+    }
+  }
+
   // Serialization for network transmission
   public toJSON(): GameStateData {
     return {
@@ -687,6 +785,7 @@ export class GameState {
       powerUps: this.powerUps.filter(p => p.active),
       stars: this.stars.filter(s => s.active),
       stunOrbs: this.stunOrbs.filter(s => s.active),
+      currentLevel: this.currentLevel,
     };
   }
 }
